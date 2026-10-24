@@ -24,6 +24,25 @@ public class NativeWebP {
     }
 
     /**
+     * Indicates whether the Foreign Function &amp; Memory (FFM) API backend is active.
+     * Always returns false on Java &lt; 22 (where JNI is used).
+     *
+     * @return true if FFM is active, false if JNI is active
+     */
+    public static boolean isFFM() {
+        return false;
+    }
+
+    /**
+     * Returns the name of the active native interop backend ("JNI" on Java &lt; 22).
+     *
+     * @return "JNI"
+     */
+    public static String getBackendName() {
+        return "JNI";
+    }
+
+    /**
      * Simple native method for smoke testing.
      * Returns the libwebp version number to verify JNI bindings work correctly.
      *

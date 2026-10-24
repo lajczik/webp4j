@@ -766,3 +766,404 @@ cleanup:
     (*env)->ReleaseByteArrayElements(env, webPData, webp_bytes, JNI_ABORT);
     return ok;
 }
+
+
+/* ===========================================================================
+ * Foreign Function & Memory API (FFM) - C ABI Entry Points
+ *
+ * Direct C ABI exports for Java 22+ java.lang.foreign downcalls.
+ * Bypasses JNIEnv and critical-section pinning overhead completely.
+ * =========================================================================== */
+
+#ifdef _WIN32
+#define WEBP4J_FFM_EXPORT __declspec(dllexport)
+#else
+#define WEBP4J_FFM_EXPORT __attribute__((visibility("default")))
+#endif
+
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_get_version(void) {
+    return (int32_t)WebPGetEncoderVersion();
+}
+
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_get_info(const uint8_t* data, size_t size,
+                                              int32_t* width, int32_t* height) {
+    if (data == NULL || width == NULL || height == NULL) return 0;
+    int w = 0, h = 0;
+    int ok = WebPGetInfo(data, size, &w, &h);
+    if (ok) {
+        *width = w;
+        *height = h;
+        return 1;
+    }
+    return 0;
+}
+
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_get_features(const uint8_t* data, size_t size,
+                                                  int32_t* width, int32_t* height,
+                                                  int32_t* has_alpha, int32_t* has_animation,
+                                                  int32_t* format) {
+    if (data == NULL) return -1;
+    WebPBitstreamFeatures features;
+    VP8StatusCode status = WebPGetFeatures(data, size, &features);
+    if (status != VP8_STATUS_OK) return (int32_t)status;
+
+    if (width) *width = features.width;
+    if (height) *height = features.height;
+    if (has_alpha) *has_alpha = features.has_alpha ? 1 : 0;
+    if (has_animation) *has_animation = features.has_animation ? 1 : 0;
+    if (format) *format = features.format;
+    return 0;
+}
+
+WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode(
+    const uint8_t* pixels, int32_t width, int32_t height,
+    float quality, int32_t lossless, int32_t has_alpha, int32_t multi_threaded,
+    uint8_t** out_data) {
+    if (width <= 0 || height <= 0 || pixels == NULL || out_data == NULL) return 0;
+    *out_data = NULL;
+
+    WebPConfig config;
+    WebPPicture pic;
+    WebPMemoryWriter wrt;
+    if (!SetupEncode(&config, &pic, &wrt, width, height, quality,
+                     lossless ? JNI_TRUE : JNI_FALSE,
+                     multi_threaded ? JNI_TRUE : JNI_FALSE)) {
+        return 0;
+    }
+
+    int imported = has_alpha
+        ? WebPPictureImportBGRA(&pic, pixels, width * 4)
+        : WebPPictureImportBGRX(&pic, pixels, width * 4);
+
+    int ok = imported && WebPEncode(&config, &pic);
+    WebPPictureFree(&pic);
+
+    if (ok && wrt.size > 0) {
+        *out_data = wrt.mem;
+        return wrt.size;
+    }
+    WebPMemoryWriterClear(&wrt);
+    return 0;
+}
+
+WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_bgr(
+    const uint8_t* pixels, int32_t width, int32_t height,
+    float quality, int32_t lossless, int32_t multi_threaded,
+    uint8_t** out_data) {
+    if (width <= 0 || height <= 0 || pixels == NULL || out_data == NULL) return 0;
+    *out_data = NULL;
+
+    WebPConfig config;
+    WebPPicture pic;
+    WebPMemoryWriter wrt;
+    if (!SetupEncode(&config, &pic, &wrt, width, height, quality,
+                     lossless ? JNI_TRUE : JNI_FALSE,
+                     multi_threaded ? JNI_TRUE : JNI_FALSE)) {
+        return 0;
+    }
+
+    int imported = WebPPictureImportBGR(&pic, pixels, width * 3);
+    int ok = imported && WebPEncode(&config, &pic);
+    WebPPictureFree(&pic);
+
+    if (ok && wrt.size > 0) {
+        *out_data = wrt.mem;
+        return wrt.size;
+    }
+    WebPMemoryWriterClear(&wrt);
+    return 0;
+}
+
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_decode_into(
+    const uint8_t* data, size_t size,
+    uint8_t* output_buffer, size_t output_size, int32_t output_stride) {
+    if (data == NULL || output_buffer == NULL) return 0;
+    uint8_t* res = WebPDecodeBGRAInto(data, size, output_buffer, output_size, (int)output_stride);
+    return res != NULL ? 1 : 0;
+}
+
+WEBP4J_FFM_EXPORT void webp4j_ffm_free(void* ptr) {
+    if (ptr != NULL) {
+        free(ptr);
+    }
+}
+
+WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_animated(
+    const uint8_t** frames, const int32_t* delays, int32_t frame_count,
+    int32_t width, int32_t height, float quality, int32_t lossless,
+    int32_t compression_method, int32_t loop_count, int32_t kmin, int32_t kmax,
+    int32_t minimize_size, int32_t allow_mixed, int32_t multi_threaded,
+    uint8_t** out_data) {
+    if (frame_count <= 0 || width <= 0 || height <= 0 || frames == NULL || delays == NULL || out_data == NULL) {
+        return 0;
+    }
+    *out_data = NULL;
+
+    WebPAnimEncoder* enc = NULL;
+    WebPData webp_data;
+    WebPDataInit(&webp_data);
+
+    WebPAnimEncoderOptions enc_options;
+    if (!WebPAnimEncoderOptionsInit(&enc_options)) return 0;
+    enc_options.anim_params.loop_count = loop_count;
+    enc_options.anim_params.bgcolor = 0x00000000;
+    enc_options.kmin = kmin;
+    enc_options.kmax = kmax;
+    enc_options.minimize_size = minimize_size ? 1 : 0;
+    enc_options.allow_mixed = allow_mixed ? 1 : 0;
+
+    enc = WebPAnimEncoderNew(width, height, &enc_options);
+    if (enc == NULL) return 0;
+
+    WebPConfig config;
+    if (!WebPConfigInit(&config)) {
+        WebPAnimEncoderDelete(enc);
+        return 0;
+    }
+    config.lossless = lossless ? 1 : 0;
+    config.quality = quality;
+    config.method = compression_method;
+    config.thread_level = multi_threaded ? 1 : 0;
+    if (!WebPValidateConfig(&config)) {
+        WebPAnimEncoderDelete(enc);
+        return 0;
+    }
+
+    int timestamp_ms = 0;
+    int ok = 1;
+    for (int32_t i = 0; i < frame_count; i++) {
+        if (frames[i] == NULL) { ok = 0; break; }
+        WebPPicture pic;
+        if (!WebPPictureInit(&pic)) { ok = 0; break; }
+        pic.width = width;
+        pic.height = height;
+        pic.use_argb = 1;
+
+        int imported = WebPPictureImportBGRA(&pic, frames[i], width * 4);
+        int added = imported && WebPAnimEncoderAdd(enc, &pic, timestamp_ms, &config);
+        WebPPictureFree(&pic);
+        if (!added) { ok = 0; break; }
+        timestamp_ms += delays[i];
+    }
+
+    if (ok && WebPAnimEncoderAdd(enc, NULL, timestamp_ms, NULL) &&
+        WebPAnimEncoderAssemble(enc, &webp_data)) {
+        *out_data = (uint8_t*)webp_data.bytes;
+        size_t total_size = webp_data.size;
+        WebPAnimEncoderDelete(enc);
+        return total_size;
+    }
+
+    WebPDataClear(&webp_data);
+    if (enc != NULL) WebPAnimEncoderDelete(enc);
+    return 0;
+}
+
+WEBP4J_FFM_EXPORT void webp4j_ffm_free_animated(void* ptr) {
+    if (ptr != NULL) {
+        WebPData webp_data;
+        webp_data.bytes = (uint8_t*)ptr;
+        webp_data.size = 0;
+        WebPDataClear(&webp_data);
+    }
+}
+
+
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_decode_animated(
+    const uint8_t* webp_bytes, size_t data_size,
+    int32_t* canvas_width, int32_t* canvas_height,
+    int32_t* loop_count, int32_t* bgcolor, int32_t* frame_count,
+    uint8_t** out_all_pixels, int32_t** out_timestamps) {
+    if (webp_bytes == NULL || data_size == 0 || out_all_pixels == NULL || out_timestamps == NULL) {
+        return 0;
+    }
+    *out_all_pixels = NULL;
+    *out_timestamps = NULL;
+
+    WebPData webp_data;
+    webp_data.bytes = webp_bytes;
+    webp_data.size = data_size;
+
+    WebPAnimDecoderOptions dec_options;
+    if (!WebPAnimDecoderOptionsInit(&dec_options)) {
+        return 0;
+    }
+    dec_options.color_mode = MODE_BGRA;
+
+    WebPAnimDecoder* dec = WebPAnimDecoderNew(&webp_data, &dec_options);
+    if (dec == NULL) {
+        return 0;
+    }
+
+    WebPAnimInfo anim_info;
+    if (!WebPAnimDecoderGetInfo(dec, &anim_info)) {
+        WebPAnimDecoderDelete(dec);
+        return 0;
+    }
+
+    uint32_t cw = anim_info.canvas_width;
+    uint32_t ch = anim_info.canvas_height;
+    uint32_t fc = anim_info.frame_count;
+    size_t frame_bytes = (size_t)cw * ch * 4;
+
+    uint8_t* all_pixels = (uint8_t*)malloc(fc * frame_bytes);
+    int32_t* timestamps = (int32_t*)malloc(fc * sizeof(int32_t));
+    if (!all_pixels || !timestamps) {
+        free(all_pixels);
+        free(timestamps);
+        WebPAnimDecoderDelete(dec);
+        return 0;
+    }
+
+    uint32_t frame_idx = 0;
+    while (WebPAnimDecoderHasMoreFrames(dec) && frame_idx < fc) {
+        uint8_t* buf = NULL;
+        int ts = 0;
+        if (!WebPAnimDecoderGetNext(dec, &buf, &ts)) {
+            break;
+        }
+        memcpy(all_pixels + (size_t)frame_idx * frame_bytes, buf, frame_bytes);
+        timestamps[frame_idx] = ts;
+        frame_idx++;
+    }
+    WebPAnimDecoderDelete(dec);
+
+    if (canvas_width) *canvas_width = (int32_t)cw;
+    if (canvas_height) *canvas_height = (int32_t)ch;
+    if (loop_count) *loop_count = (int32_t)anim_info.loop_count;
+    if (bgcolor) *bgcolor = (int32_t)anim_info.bgcolor;
+    if (frame_count) *frame_count = (int32_t)frame_idx;
+    *out_all_pixels = all_pixels;
+    *out_timestamps = timestamps;
+    return 1;
+}
+
+#ifdef HAVE_GIFLIB
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_get_gif_info(
+    const uint8_t* gif_bytes, size_t data_size,
+    int32_t* width, int32_t* height, int32_t* frame_count,
+    int32_t* loop_count, int32_t* has_transparency) {
+    if (gif_bytes == NULL || data_size == 0) return 0;
+    int w = 0, h = 0, fc = 0, lc = 0, ht = 0;
+    int success = GetGifInfo(gif_bytes, data_size, &w, &h, &fc, &lc, &ht);
+    if (!success) return 0;
+    if (width) *width = w;
+    if (height) *height = h;
+    if (frame_count) *frame_count = fc;
+    if (loop_count) *loop_count = lc;
+    if (has_transparency) *has_transparency = ht;
+    return 1;
+}
+
+WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_gif(
+    const uint8_t* gif_bytes, size_t data_size,
+    float quality, int32_t lossless, int32_t compression_method,
+    int32_t extract_first, int32_t loop_count, int32_t kmin, int32_t kmax,
+    int32_t minimize_size, int32_t allow_mixed, int32_t multi_threaded,
+    uint8_t** out_data) {
+    if (gif_bytes == NULL || data_size == 0 || out_data == NULL) return 0;
+    *out_data = NULL;
+
+    if (extract_first) {
+        int cw = 0, ch = 0;
+        GifFrame* frame = DecodeGifFirstFrame(gif_bytes, data_size, &cw, &ch);
+        if (frame == NULL) return 0;
+
+        uint8_t* output = NULL;
+        size_t output_size = lossless
+            ? WebPEncodeLosslessRGBA(frame->rgba_data, cw, ch, cw * 4, &output)
+            : WebPEncodeRGBA(frame->rgba_data, cw, ch, cw * 4, quality, &output);
+        FreeGifFrame(frame);
+        if (output_size > 0 && output != NULL) {
+            *out_data = output;
+            return output_size;
+        }
+        return 0;
+    }
+
+    GifDecodeResult* gif_res = DecodeGifFromMemory(gif_bytes, data_size);
+    if (gif_res == NULL) return 0;
+
+    if (gif_res->frame_count == 1) {
+        int cw = gif_res->canvas_width;
+        int ch = gif_res->canvas_height;
+        uint8_t* output = NULL;
+        size_t output_size = lossless
+            ? WebPEncodeLosslessRGBA(gif_res->frames[0].rgba_data, cw, ch, cw * 4, &output)
+            : WebPEncodeRGBA(gif_res->frames[0].rgba_data, cw, ch, cw * 4, quality, &output);
+        FreeGifDecodeResult(gif_res);
+        if (output_size > 0 && output != NULL) {
+            *out_data = output;
+            return output_size;
+        }
+        return 0;
+    }
+
+    WebPAnimEncoder* enc = NULL;
+    WebPData webp_data;
+    WebPDataInit(&webp_data);
+
+    WebPAnimEncoderOptions enc_options;
+    if (!WebPAnimEncoderOptionsInit(&enc_options)) {
+        FreeGifDecodeResult(gif_res);
+        return 0;
+    }
+    enc_options.anim_params.loop_count = loop_count == -1 ? gif_res->loop_count : loop_count;
+    enc_options.anim_params.bgcolor = 0x00000000;
+    enc_options.kmin = kmin;
+    enc_options.kmax = kmax;
+    enc_options.minimize_size = minimize_size ? 1 : 0;
+    enc_options.allow_mixed = allow_mixed ? 1 : 0;
+
+    enc = WebPAnimEncoderNew(gif_res->canvas_width, gif_res->canvas_height, &enc_options);
+    if (enc == NULL) {
+        FreeGifDecodeResult(gif_res);
+        return 0;
+    }
+
+    WebPConfig config;
+    if (!WebPConfigInit(&config)) {
+        WebPAnimEncoderDelete(enc);
+        FreeGifDecodeResult(gif_res);
+        return 0;
+    }
+    config.lossless = lossless ? 1 : 0;
+    config.quality = quality;
+    config.method = compression_method;
+    config.thread_level = multi_threaded ? 1 : 0;
+    if (!WebPValidateConfig(&config)) {
+        WebPAnimEncoderDelete(enc);
+        FreeGifDecodeResult(gif_res);
+        return 0;
+    }
+
+    int timestamp_ms = 0;
+    int ok = 1;
+    for (int i = 0; i < gif_res->frame_count; i++) {
+        WebPPicture pic;
+        if (!WebPPictureInit(&pic)) { ok = 0; break; }
+        pic.width = gif_res->canvas_width;
+        pic.height = gif_res->canvas_height;
+        pic.use_argb = 1;
+
+        int imported = WebPPictureImportRGBA(&pic, gif_res->frames[i].rgba_data, gif_res->canvas_width * 4);
+        int added = imported && WebPAnimEncoderAdd(enc, &pic, timestamp_ms, &config);
+        WebPPictureFree(&pic);
+        if (!added) { ok = 0; break; }
+        timestamp_ms += gif_res->frames[i].duration_ms;
+    }
+    FreeGifDecodeResult(gif_res);
+
+    if (ok && WebPAnimEncoderAdd(enc, NULL, timestamp_ms, NULL) &&
+        WebPAnimEncoderAssemble(enc, &webp_data)) {
+        *out_data = (uint8_t*)webp_data.bytes;
+        size_t total_size = webp_data.size;
+        WebPAnimEncoderDelete(enc);
+        return total_size;
+    }
+
+    WebPDataClear(&webp_data);
+    if (enc != NULL) WebPAnimEncoderDelete(enc);
+    return 0;
+}
+#endif

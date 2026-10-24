@@ -10,11 +10,21 @@ import java.nio.file.Files;
 
 public class NativeLibraryLoader {
 
+    private static volatile File loadedLibraryFile;
+
     private NativeLibraryLoader() {
         throw new AssertionError("Cannot instantiate utility class.");
     }
 
-    public static void loadLibrary() {
+    public static File getLoadedLibraryFile() {
+        return loadedLibraryFile;
+    }
+
+    public static synchronized void loadLibrary() {
+        if (loadedLibraryFile != null && loadedLibraryFile.exists()) {
+            return;
+        }
+
         String os = System.getProperty("os.name").toLowerCase();
         String arch = System.getProperty("os.arch").toLowerCase();
 
@@ -59,6 +69,7 @@ public class NativeLibraryLoader {
 
             // Load the library
             System.load(tempLibraryFile.getAbsolutePath());
+            loadedLibraryFile = tempLibraryFile;
 
         } catch (IOException e) {
             throw new NativeLibraryNotFoundException("Could not load native WebP library", e);

@@ -3,6 +3,7 @@ package dev.matrixlab.webp4j;
 import dev.matrixlab.webp4j.animation.AnimatedWebPDecoder;
 import dev.matrixlab.webp4j.animation.AnimatedWebPEncoder;
 import dev.matrixlab.webp4j.batch.BatchProcessor;
+import dev.matrixlab.webp4j.chunks.*;
 import dev.matrixlab.webp4j.gif.GifToWebPConfig;
 import dev.matrixlab.webp4j.gif.GifToWebPConverter;
 import dev.matrixlab.webp4j.internal.NativeWebP;
@@ -11,9 +12,12 @@ import dev.matrixlab.webp4j.model.AnimatedWebPData;
 import dev.matrixlab.webp4j.model.AnimationInfo;
 import dev.matrixlab.webp4j.model.VP8StatusCode;
 import dev.matrixlab.webp4j.model.WebPBitstreamFeatures;
+import dev.matrixlab.webp4j.utils.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -24,6 +28,7 @@ import java.util.List;
  *   <li>Static image encoding/decoding</li>
  *   <li>GIF to WebP conversion</li>
  *   <li>Animated WebP creation</li>
+ *   <li>WebP container and RIFF chunk inspection</li>
  * </ul>
  *
  * @author MrNanko
@@ -60,7 +65,11 @@ public final class WebPCodec {
      * @return true if WebP operations are supported on this platform, false otherwise
      */
     public static boolean isAvailable() {
-        return NativeWebP.isAvailable();
+        try {
+            return NativeWebP.isAvailable();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /**
@@ -74,29 +83,206 @@ public final class WebPCodec {
      *         this platform (see {@link #isAvailable()})
      */
     public static String libWebPVersion() {
-        return NativeWebP.libWebPVersion();
+        try {
+            return NativeWebP.libWebPVersion();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Indicates whether the Foreign Function &amp; Memory (FFM) API backend is active.
+     * On Java 22+, FFM is preferred and used if available. On Java &lt; 22, JNI is used.
+     *
+     * @return true if running under Java 22+ FFM backend, false if using JNI
+     */
+    public static boolean isFFM() {
+        try {
+            return NativeWebP.isFFM();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Returns the name of the active native interop backend ("FFM" or "JNI").
+     *
+     * @return "FFM" on Java 22+ when FFM is active, "JNI" otherwise
+     */
+    public static String getBackendName() {
+        try {
+            return NativeWebP.getBackendName();
+        } catch (Throwable t) {
+            return "JNI";
+        }
     }
 
     // ============================================
-    // Static Image Encoding/Decoding
+    // Static Image Encoding/Decoding & Inspection
     // ============================================
 
     /**
-     * Retrieves information about a WebP image.
+     * Retrieves information (dimensions) about a WebP image directly in Java by parsing
+     * container chunks without crossing into native C.
      *
      * @param webPData Byte array containing WebP image data
      * @return int array containing width and height of the image [width, height]
      * @throws IOException If there is an error processing the image
      */
     public static int[] getWebPInfo(byte[] webPData) throws IOException {
-        int[] dimensions = new int[2];
-        boolean success = NativeWebP.getInfo(webPData, dimensions);
-
-        if (!success) {
-            throw new IOException("Failed to retrieve WebP image information.");
+        if (webPData == null || webPData.length < 12) {
+            throw new IllegalArgumentException("WebP data cannot be null or shorter than 12 bytes.");
         }
+        try {
+            WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
+            return new int[]{features.getWidth(), features.getHeight()};
+        } catch (Exception e) {
+            try {
+                if (isAvailable()) {
+                    int[] dimensions = new int[2];
+                    if (NativeWebP.getInfo(webPData, dimensions)) {
+                        return dimensions;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            throw new IOException("Failed to retrieve WebP image information: " + e.getMessage(), e);
+        }
+    }
 
-        return dimensions;
+    /**
+     * Retrieves bitstream features (dimensions, format, alpha, animation) of a WebP image.
+     * Primary parsing is executed directly in Java from RIFF container chunks with zero JNI boundary overhead.
+     *
+     * @param webPData Byte array containing WebP image data
+     * @return WebPBitstreamFeatures object containing image metadata
+     * @throws IOException If the data is invalid or cannot be parsed
+     */
+    public static WebPBitstreamFeatures getBitstreamFeatures(byte[] webPData) throws IOException {
+        if (webPData == null || webPData.length == 0) {
+            throw new IllegalArgumentException("WebP data cannot be null or empty.");
+        }
+        try {
+            return WebPBitstreamFeatures.parse(webPData);
+        } catch (Exception e) {
+            try {
+                if (isAvailable()) {
+                    WebPBitstreamFeatures features = new WebPBitstreamFeatures();
+                    int status = NativeWebP.getFeatures(webPData, webPData.length, features);
+                    if (VP8StatusCode.getStatusCode(status) == VP8StatusCode.VP8_STATUS_OK) {
+                        return features;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            throw new IOException("Failed to retrieve WebP bitstream features: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Parses and returns all top-level RIFF chunks from a WebP image container.
+     *
+     * @param webPData Byte array containing WebP image data
+     * @return List of parsed Chunk objects
+     * @throws IOException If the container format is invalid
+     */
+    public static List<Chunk> getChunks(byte[] webPData) throws IOException {
+        if (webPData == null || webPData.length == 0) {
+            throw new IllegalArgumentException("WebP data cannot be null or empty.");
+        }
+        return ChunkFactory.parseAll(webPData);
+    }
+
+    /**
+     * Checks if a WebP file is animated using fast container chunk inspection,
+     * without invoking native code or decoding pixels.
+     *
+     * @param webPData Byte array containing WebP image data
+     * @return true if the image contains animation chunks or flags
+     */
+    public static boolean isAnimated(byte[] webPData) {
+        if (webPData == null || webPData.length < 16) {
+            return false;
+        }
+        try {
+            WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
+            return features.isHasAnimation();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Extracts raw EXIF metadata bytes from a WebP image if present.
+     *
+     * @param webPData WebP image data
+     * @return Raw EXIF payload, or null if not present
+     */
+    public static byte[] getExifMetadata(byte[] webPData) {
+        try {
+            for (Chunk c : getChunks(webPData)) {
+                if (c instanceof EXIFChunk) {
+                    return ((EXIFChunk) c).getRawData();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Extracts raw ICC color profile bytes from a WebP image if present.
+     *
+     * @param webPData WebP image data
+     * @return Raw ICC profile payload, or null if not present
+     */
+    public static byte[] getIccProfile(byte[] webPData) {
+        try {
+            for (Chunk c : getChunks(webPData)) {
+                if (c instanceof ICCPChunk) {
+                    return ((ICCPChunk) c).getRawData();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Extracts XMP metadata XML string from a WebP image if present.
+     *
+     * @param webPData WebP image data
+     * @return XMP XML string, or null if not present
+     */
+    public static String getXmpMetadata(byte[] webPData) {
+        try {
+            for (Chunk c : getChunks(webPData)) {
+                if (c instanceof XMPChunk) {
+                    byte[] data = ((XMPChunk) c).getRawData();
+                    return new String(data, StandardCharsets.UTF_8);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Encodes a static image with optional metadata directly into a complete WebP container
+     * assembled on the Java side.
+     *
+     * @param image    Input BufferedImage
+     * @param quality  Quality parameter (0-100)
+     * @param lossless True for lossless, false for lossy
+     * @param exif     Optional EXIF byte array (or null)
+     * @param iccp     Optional ICC profile byte array (or null)
+     * @param xmp      Optional XMP XML string (or null)
+     * @return Byte array containing the complete WebP file
+     * @throws IOException If encoding fails
+     */
+    public static byte[] encodeImageWithMetadata(BufferedImage image, float quality, boolean lossless,
+                                                 byte[] exif, byte[] iccp, String xmp) throws IOException {
+        return WebPEncoder.encodeWithMetadata(image, quality, lossless, exif, iccp, xmp);
     }
 
     /**
@@ -116,13 +302,6 @@ public final class WebPCodec {
     /**
      * Encodes an RGB/RGBA BufferedImage to a WebP encoded byte array, with
      * explicit control over libwebp's multi-threaded encoding.
-     * <p>
-     * {@code multiThreaded} maps to libwebp's {@code thread_level}: it is a pure
-     * speed knob (output is bit-identical, only faster on multi-core machines).
-     * It defaults to {@code true} in the three-argument overload. Disable it when
-     * the caller already parallelizes across images — e.g. {@link BatchProcessor}
-     * runs one image per pool thread and passes {@code false} here to avoid
-     * oversubscribing the CPU.
      *
      * @param bufferedImage The input BufferedImage in RGB/RGBA format.
      * @param quality       The WebP quality parameter (0-100). Ignored when lossless is true.
@@ -146,10 +325,6 @@ public final class WebPCodec {
         int height = bufferedImage.getHeight();
         boolean hasAlpha = bufferedImage.getColorModel().hasAlpha();
 
-        // Zero-copy paths: the arrays below may be the image's live backing
-        // store, so they must never be modified. TYPE_3BYTE_BGR (ImageIO's
-        // usual output for JPEG and opaque PNG) feeds libwebp's BGR import
-        // directly; TYPE_INT_ARGB/TYPE_INT_RGB feed the BGRA/BGRX import.
         byte[] encodedWebP;
         byte[] bgrPixels = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(bufferedImage);
         if (bgrPixels != null) {
@@ -168,13 +343,6 @@ public final class WebPCodec {
 
     /**
      * Encodes an RGB/RGBA BufferedImage to a lossy WebP encoded byte array.
-     * This is a convenience method that calls encodeImage(bufferedImage, quality, false).
-     *
-     * @param bufferedImage The input BufferedImage in RGB/RGBA format.
-     * @param quality       The WebP quality parameter (0-100).
-     * @return A byte array containing the lossy WebP encoded data.
-     * @throws IOException              If an error occurs during image conversion or encoding.
-     * @throws IllegalArgumentException If bufferedImage is null.
      */
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality) throws IOException {
         return encodeImage(bufferedImage, quality, false);
@@ -182,12 +350,6 @@ public final class WebPCodec {
 
     /**
      * Encodes an RGB/RGBA BufferedImage to a lossless WebP encoded byte array.
-     * This is a convenience method that calls encodeImage(bufferedImage, 0, true).
-     *
-     * @param bufferedImage The input BufferedImage in RGB/RGBA format.
-     * @return A byte array containing the lossless WebP encoded data.
-     * @throws IOException              If an error occurs during image conversion or encoding.
-     * @throws IllegalArgumentException If bufferedImage is null.
      */
     public static byte[] encodeLosslessImage(BufferedImage bufferedImage) throws IOException {
         return encodeImage(bufferedImage, 0, true);
@@ -195,29 +357,17 @@ public final class WebPCodec {
 
     /**
      * Decodes a WebP image (stored as a byte array) into an RGB/RGBA BufferedImage.
-     *
-     * @param webPData The byte array containing the WebP encoded image.
-     * @return A BufferedImage representing the decoded RGB/RGBA image.
-     * @throws IOException              If an error occurs during retrieval of image info or decoding.
-     * @throws IllegalArgumentException If webPData is null or empty.
      */
     public static BufferedImage decodeImage(byte[] webPData) throws IOException {
         if (webPData == null || webPData.length == 0) {
             throw new IllegalArgumentException("The input WebP data cannot be null or empty.");
         }
 
-        WebPBitstreamFeatures features = new WebPBitstreamFeatures();
-        int status = NativeWebP.getFeatures(webPData, webPData.length, features);
-        VP8StatusCode code = VP8StatusCode.getStatusCode(status);
-        if (code != VP8StatusCode.VP8_STATUS_OK) {
-            throw new IOException("Failed to get WebP bitstream features, error code: " + code);
-        }
-
+        WebPBitstreamFeatures features = getBitstreamFeatures(webPData);
         int width = features.getWidth();
         int height = features.getHeight();
         boolean hasAlpha = features.isHasAlpha();
 
-        // Decode straight into the array that will back the returned image.
         int[] pixels = new int[width * height];
         if (!NativeWebP.decodeInto(webPData, pixels, width * 4)) {
             throw new IOException("Failed to decode WebP data.");
@@ -230,49 +380,10 @@ public final class WebPCodec {
     // Batch Processing (Delegate to BatchProcessor)
     // ============================================
 
-    /**
-     * Encodes a list of images to WebP in parallel.
-     * <p>
-     * Independent images are encoded concurrently across a shared internal thread
-     * pool for multi-core speedup. Results are order-preserving: result {@code i}
-     * corresponds to input image {@code i}.
-     * <p>
-     * For control over the thread pool (e.g. to cap or share threads in a server),
-     * call {@link BatchProcessor#encodeImages(List, float, boolean, java.util.concurrent.ExecutorService)}
-     * directly.
-     * <p>
-     * Example usage:
-     * <pre>{@code
-     * List<BufferedImage> images = Arrays.asList(img1, img2, img3);
-     * List<byte[]> webps = WebPCodec.encodeImages(images, 75, false);
-     * }</pre>
-     *
-     * @param images   List of images to encode (null or empty yields an empty list)
-     * @param quality  Quality factor (0-100), ignored when lossless
-     * @param lossless True for lossless encoding, false for lossy
-     * @return An immutable list of encoded WebP byte arrays, one per input image, in order
-     * @throws IOException              If encoding any image fails (names the failing index)
-     * @throws IllegalArgumentException If any image element is null
-     */
     public static List<byte[]> encodeImages(List<BufferedImage> images, float quality, boolean lossless) throws IOException {
         return BatchProcessor.encodeImages(images, quality, lossless);
     }
 
-    /**
-     * Decodes a list of WebP byte arrays into images in parallel.
-     * <p>
-     * Independent images are decoded concurrently across a shared internal thread
-     * pool. Results are order-preserving: result {@code i} corresponds to input
-     * array {@code i}.
-     * <p>
-     * For control over the thread pool, call
-     * {@link BatchProcessor#decodeImages(List, java.util.concurrent.ExecutorService)} directly.
-     *
-     * @param encodedImages List of WebP-encoded byte arrays (null or empty yields an empty list)
-     * @return An immutable list of decoded images, one per input array, in order
-     * @throws IOException              If decoding any array fails (names the failing index)
-     * @throws IllegalArgumentException If any element is null
-     */
     public static List<BufferedImage> decodeImages(List<byte[]> encodedImages) throws IOException {
         return BatchProcessor.decodeImages(encodedImages);
     }
@@ -281,67 +392,18 @@ public final class WebPCodec {
     // GIF to WebP Conversion (Delegate to GifToWebPConverter)
     // ============================================
 
-    /**
-     * Gets information about a GIF image without performing full conversion.
-     * <p>
-     * This is useful for determining whether a GIF is animated, its dimensions,
-     * and other properties before deciding how to convert it.
-     *
-     * @param gifData Byte array containing the GIF image data
-     * @return AnimationInfo containing frame count, dimensions, loop count, and transparency info
-     * @throws IOException              If reading GIF information fails
-     * @throws IllegalArgumentException If gifData is null or empty
-     */
     public static AnimationInfo getGifInfo(byte[] gifData) throws IOException {
         return GifToWebPConverter.getInfo(gifData);
     }
 
-    /**
-     * Converts a GIF image to WebP format with default lossy settings.
-     * <p>
-     * This is a convenience method that uses quality factor 75 and lossy compression.
-     * For more control over the conversion, use {@link #encodeGifToWebP(byte[], GifToWebPConfig)}.
-     *
-     * @param gifData Byte array containing the GIF image data
-     * @return Byte array containing the WebP encoded image
-     * @throws IOException              If conversion fails
-     * @throws IllegalArgumentException If gifData is null or empty
-     */
     public static byte[] encodeGifToWebP(byte[] gifData) throws IOException {
         return GifToWebPConverter.convert(gifData);
     }
 
-    /**
-     * Converts a GIF image to WebP format.
-     * <p>
-     * This method automatically detects whether the GIF is static or animated,
-     * and handles both cases appropriately. It uses a dual-path approach:
-     * <ul>
-     *   <li>Primary: Native giflib decoder (fast, complete GIF support)</li>
-     *   <li>Fallback: Java ImageIO decoder (slower, but works when native library unavailable)</li>
-     * </ul>
-     *
-     * @param gifData Byte array containing the GIF image data
-     * @param config  Configuration for conversion (quality, lossless, compression, etc.)
-     * @return Byte array containing the WebP encoded image
-     * @throws IOException              If conversion fails
-     * @throws IllegalArgumentException If gifData or config is null
-     */
     public static byte[] encodeGifToWebP(byte[] gifData, GifToWebPConfig config) throws IOException {
         return GifToWebPConverter.convert(gifData, config);
     }
 
-    /**
-     * Converts a GIF image to lossless WebP format.
-     * <p>
-     * This is a convenience method that uses lossless compression to preserve
-     * the original GIF quality without any loss.
-     *
-     * @param gifData Byte array containing the GIF image data
-     * @return Byte array containing the lossless WebP encoded image
-     * @throws IOException              If conversion fails
-     * @throws IllegalArgumentException If gifData is null or empty
-     */
     public static byte[] encodeGifToWebPLossless(byte[] gifData) throws IOException {
         return GifToWebPConverter.convertLossless(gifData);
     }
@@ -350,63 +412,39 @@ public final class WebPCodec {
     // Animated WebP Creation (Delegate to AnimatedWebPEncoder)
     // ============================================
 
-    /**
-     * Creates an animated WebP from a list of BufferedImage frames.
-     * <p>
-     * This method provides direct conversion from Java BufferedImage objects
-     * to animated WebP without requiring an intermediate GIF file.
-     * <p>
-     * Example usage:
-     * <pre>{@code
-     * List<BufferedImage> frames = Arrays.asList(frame1, frame2, frame3);
-     * int[] delays = {100, 100, 100};  // milliseconds per frame
-     * GifToWebPConfig config = GifToWebPConfig.createLosslessConfig();
-     * byte[] webp = WebPCodec.createAnimatedWebP(frames, delays, config);
-     * }</pre>
-     *
-     * @param frames List of BufferedImage frames (must not be empty)
-     * @param delays Array of frame delays in milliseconds (must match frame count)
-     * @param config Configuration for encoding (quality, compression, etc.)
-     * @return Byte array containing the animated WebP data
-     * @throws IOException              If encoding fails
-     * @throws IllegalArgumentException If frames is empty or delays length doesn't match
-     */
     public static byte[] createAnimatedWebP(List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
         return AnimatedWebPEncoder.encode(frames, delays, config);
     }
 
+    /**
+     * Streams an animated WebP directly to an OutputStream using chunk assembly in Java.
+     *
+     * @param out    Destination output stream
+     * @param frames List of frames to encode
+     * @param delays Delays in milliseconds for each frame
+     * @param config Conversion configuration
+     * @throws IOException If encoding fails
+     */
+    public static void createAnimatedWebP(OutputStream out, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
+        AnimatedWebPEncoder.encode(out, frames, delays, config);
+    }
+
     // ============================================
-    // Animated WebP Decoding (Delegate to AnimatedWebPDecoder)
+    // Animated WebP Decoding & Metadata (Delegate to AnimatedWebPDecoder)
     // ============================================
 
     /**
-     * Decodes an animated WebP image into individual frames.
-     * <p>
-     * This method extracts all frames from an animated WebP as BufferedImage
-     * objects along with their timestamps and animation metadata.
-     * <p>
-     * Each frame is a fully composited canvas-sized RGBA image.
-     * <p>
-     * Example usage:
-     * <pre>{@code
-     * byte[] webPData = Files.readAllBytes(Paths.get("animation.webp"));
-     * AnimatedWebPData result = WebPCodec.decodeAnimatedWebP(webPData);
-     *
-     * // Access individual frames
-     * for (AnimatedWebPFrame frame : result.getFrames()) {
-     *     BufferedImage image = frame.getImage();
-     *     int timestamp = frame.getTimestamp();
-     * }
-     *
-     * // Get per-frame delays
-     * int[] delays = result.getDelays();
-     * }</pre>
+     * Retrieves animation metadata (dimensions, loop count, frame count, transparency)
+     * using container chunk inspection without decoding any frame pixels.
      *
      * @param webPData Byte array containing the animated WebP image data
-     * @return AnimatedWebPData containing all decoded frames and animation metadata
-     * @throws IOException              If decoding fails
-     * @throws IllegalArgumentException If webPData is null or empty
+     * @return AnimationInfo populated from container chunks
+     * @throws IOException If parsing fails
      */
+    public static AnimationInfo getAnimatedWebPInfo(byte[] webPData) throws IOException {
+        return AnimatedWebPDecoder.getAnimationInfo(webPData);
+    }
+
     public static AnimatedWebPData decodeAnimatedWebP(byte[] webPData) throws IOException {
         return AnimatedWebPDecoder.decode(webPData);
     }
