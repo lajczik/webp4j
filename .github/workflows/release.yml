@@ -137,7 +137,7 @@ jobs:
           **Maven:**
           ```xml
           <dependency>
-            <groupId>dev.matrixlab.webp4j</groupId>
+            <groupId>xyz.lychee.webp4j</groupId>
             <artifactId>webp4j-core</artifactId>
             <version>${{ steps.version.outputs.VERSION }}</version>
           </dependency>
@@ -145,7 +145,7 @@ jobs:
 
           **Gradle:**
           ```gradle
-          implementation 'dev.matrixlab.webp4j:webp4j-core:${{ steps.version.outputs.VERSION }}'
+          implementation 'xyz.lychee.webp4j:webp4j-core:${{ steps.version.outputs.VERSION }}'
           ```
 
           ### Supported Platforms

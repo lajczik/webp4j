@@ -1,0 +1,9 @@
+package xyz.lychee.webp4j.chunks;
+
+public class UnknownChunk extends RawDataChunk {
+
+    public UnknownChunk(byte[] fourCC, byte[] data) {
+        super(fourCC, data);
+    }
+
+}

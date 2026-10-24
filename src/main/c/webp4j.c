@@ -5,7 +5,7 @@
 #include <webp/decode.h>
 #include <webp/mux.h>
 #include <webp/demux.h>
-#include "dev_matrixlab_webp4j_internal_NativeWebP.h"
+#include "xyz_lychee_webp4j_internal_NativeWebP.h"
 
 #ifdef HAVE_GIFLIB
 #include "gif_decoder.h"
@@ -37,21 +37,21 @@
  * The global class refs keep the jfieldIDs valid for the library's lifetime.
  * ------------------------------------------------------------------------- */
 
-static jclass g_features_class;        /* dev.matrixlab.webp4j.model.WebPBitstreamFeatures */
+static jclass g_features_class;        /* xyz.lychee.webp4j.model.WebPBitstreamFeatures */
 static jfieldID g_features_width;
 static jfieldID g_features_height;
 static jfieldID g_features_has_alpha;
 static jfieldID g_features_has_animation;
 static jfieldID g_features_format;
 
-static jclass g_anim_info_class;       /* dev.matrixlab.webp4j.model.AnimationInfo */
+static jclass g_anim_info_class;       /* xyz.lychee.webp4j.model.AnimationInfo */
 static jfieldID g_anim_info_width;
 static jfieldID g_anim_info_height;
 static jfieldID g_anim_info_frame_count;
 static jfieldID g_anim_info_loop_count;
 static jfieldID g_anim_info_has_transparency;
 
-static jclass g_anim_data_class;       /* dev.matrixlab.webp4j.model.AnimatedWebPData */
+static jclass g_anim_data_class;       /* xyz.lychee.webp4j.model.AnimatedWebPData */
 static jfieldID g_anim_data_canvas_width;
 static jfieldID g_anim_data_canvas_height;
 static jfieldID g_anim_data_loop_count;
@@ -78,9 +78,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         return JNI_ERR;
     }
 
-    g_features_class = CacheClass(env, "dev/matrixlab/webp4j/model/WebPBitstreamFeatures");
-    g_anim_info_class = CacheClass(env, "dev/matrixlab/webp4j/model/AnimationInfo");
-    g_anim_data_class = CacheClass(env, "dev/matrixlab/webp4j/model/AnimatedWebPData");
+    g_features_class = CacheClass(env, "xyz/lychee/webp4j/model/WebPBitstreamFeatures");
+    g_anim_info_class = CacheClass(env, "xyz/lychee/webp4j/model/AnimationInfo");
+    g_anim_data_class = CacheClass(env, "xyz/lychee/webp4j/model/AnimatedWebPData");
     g_int_array_class = CacheClass(env, "[I");
     if (g_features_class == NULL || g_anim_info_class == NULL ||
         g_anim_data_class == NULL || g_int_array_class == NULL) {
@@ -142,7 +142,7 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved) {
  * Smoke test: verifies the library loaded, the JNI bindings link, and libwebp
  * is callable. Invoked from NativeWebP's static initializer.
  */
-JNIEXPORT jint JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_getLibWebPVersion
+JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getLibWebPVersion
   (JNIEnv *env, jclass clazz) {
     return (jint) WebPGetEncoderVersion();
 }
@@ -150,7 +150,7 @@ JNIEXPORT jint JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_getLibWebPV
 /*
  * Retrieves width/height of a WebP image into dimensions[0..1].
  */
-JNIEXPORT jboolean JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_getInfo
+JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getInfo
   (JNIEnv *env, jclass clazz, jbyteArray data, jintArray dimensions) {
     jsize data_size = (*env)->GetArrayLength(env, data);
     if ((*env)->GetArrayLength(env, dimensions) < 2) {
@@ -178,7 +178,7 @@ JNIEXPORT jboolean JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_getInfo
  * Extracts WebP bitstream features into a WebPBitstreamFeatures object.
  * Returns the VP8StatusCode from WebPGetFeatures (0 = OK).
  */
-JNIEXPORT jint JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_getFeatures
+JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getFeatures
   (JNIEnv *env, jclass clazz, jbyteArray data, jint dataSize, jobject featuresObj) {
     WebPBitstreamFeatures features;
     jbyte* webp_data = (*env)->GetPrimitiveArrayCritical(env, data, NULL);
@@ -264,7 +264,7 @@ static jbyteArray FinishEncode(JNIEnv* env, WebPConfig* config, WebPPicture* pic
  * the expensive WebPEncode runs after the array is released, so GC is never
  * blocked during compression.
  */
-JNIEXPORT jbyteArray JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_encode
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encode
   (JNIEnv *env, jclass clazz, jintArray pixels, jint width, jint height,
    jfloat quality, jboolean lossless, jboolean hasAlpha, jboolean multiThreaded) {
     if (width <= 0 || height <= 0 ||
@@ -297,7 +297,7 @@ JNIEXPORT jbyteArray JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_encod
  * order already matches WebPPictureImportBGR, so the image's backing array
  * is imported directly with no Java-side conversion.
  */
-JNIEXPORT jbyteArray JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_encodeBgr
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encodeBgr
   (JNIEnv *env, jclass clazz, jbyteArray pixels, jint width, jint height,
    jfloat quality, jboolean lossless, jboolean multiThreaded) {
     if (width <= 0 || height <= 0 ||
@@ -332,7 +332,7 @@ JNIEXPORT jbyteArray JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_encod
  * Nested criticals are legal here because no other JNI call happens between
  * acquisition and release.
  */
-JNIEXPORT jboolean JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_decodeInto
+JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_decodeInto
   (JNIEnv *env, jclass clazz, jbyteArray data, jintArray output, jint outputStride) {
     jsize data_size = (*env)->GetArrayLength(env, data);
     size_t output_size = (size_t)(*env)->GetArrayLength(env, output) * 4;
@@ -367,7 +367,7 @@ JNIEXPORT jboolean JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_decodeI
  * Uses GetByteArrayElements (not a critical section): the giflib scan walks
  * the whole file and its duration is unbounded.
  */
-JNIEXPORT jboolean JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_getGifInfo
+JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getGifInfo
   (JNIEnv *env, jclass clazz, jbyteArray gifData, jobject info) {
 #ifdef HAVE_GIFLIB
     jsize data_size = (*env)->GetArrayLength(env, gifData);
@@ -425,7 +425,7 @@ static jbyteArray EncodeStaticRGBA(JNIEnv* env, const uint8_t* rgba,
  * Converts GIF data to WebP using the native giflib decoder (primary path).
  * Returns NULL on any failure, triggering the Java ImageIO fallback.
  */
-JNIEXPORT jbyteArray JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_encodeGifToWebP
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encodeGifToWebP
   (JNIEnv *env, jclass clazz, jbyteArray gifData, jfloat quality,
    jboolean lossless, jint compressionMethod, jboolean extractFirstFrameOnly,
    jint loopCount, jint kmin, jint kmax, jboolean minimizeSize, jboolean allowMixed,
@@ -564,7 +564,7 @@ cleanup:
  * is released. Frame arrays are read-only (JNI_ABORT) — they may be live
  * BufferedImage backing stores.
  */
-JNIEXPORT jbyteArray JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_encodeAnimated
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encodeAnimated
   (JNIEnv *env, jclass clazz, jobjectArray frames, jintArray delays, jint width, jint height,
    jfloat quality, jboolean lossless, jint compressionMethod, jint loopCount,
    jint kmin, jint kmax, jboolean minimizeSize, jboolean allowMixed, jboolean multiThreaded) {
@@ -681,7 +681,7 @@ cleanup:
  * The per-frame SetIntArrayRegion copy is unavoidable: the decoder owns and
  * reuses its internal frame buffer.
  */
-JNIEXPORT jboolean JNICALL Java_dev_matrixlab_webp4j_internal_NativeWebP_decodeAnimated
+JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_decodeAnimated
   (JNIEnv *env, jclass clazz, jbyteArray webPData, jobject result) {
     jboolean ok = JNI_FALSE;
     WebPAnimDecoder* dec = NULL;
