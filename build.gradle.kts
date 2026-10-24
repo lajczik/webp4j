@@ -35,45 +35,24 @@ val compileJava = tasks.named<JavaCompile>("compileJava") {
     options.release.set(8)
 }
 
-val compileJava9 = tasks.register<JavaCompile>("compileJava9") {
-    dependsOn(compileJava)
-    source = fileTree("src/main/java9")
-    destinationDirectory.set(layout.buildDirectory.dir("classes/java9"))
-    classpath = files()
-    options.release.set(9)
-    options.compilerArgs.addAll(
-        listOf(
-            "--module-version", project.version.toString(),
-            "--patch-module", "dev.matrixlab.webp4j.core=${compileJava.get().destinationDirectory.get().asFile.absolutePath}"
-        )
-    )
-}
-
 val compileJava22 = tasks.register<JavaCompile>("compileJava22") {
     dependsOn(compileJava)
     source = fileTree("src/main/java22")
     destinationDirectory.set(layout.buildDirectory.dir("classes/java22"))
     classpath = compileJava.get().outputs.files
     options.release.set(22)
-    options.compilerArgs.addAll(
-        listOf(
-            "--patch-module", "dev.matrixlab.webp4j.core=${compileJava.get().destinationDirectory.get().asFile.absolutePath}"
-        )
-    )
 }
 
 tasks.named<Jar>("jar") {
-    dependsOn(compileJava9, compileJava22)
+    dependsOn(compileJava22)
     archiveBaseName.set("webp4j-core")
     manifest {
         attributes(
             "Multi-Release" to "true",
+            "Automatic-Module-Name" to "${project.group}.core",
             "Implementation-Title" to "webp4j-core",
             "Implementation-Version" to project.version
         )
-    }
-    into("META-INF/versions/9") {
-        from(compileJava9.map { it.destinationDirectory })
     }
     into("META-INF/versions/22") {
         from(compileJava22.map { it.destinationDirectory })
@@ -81,9 +60,6 @@ tasks.named<Jar>("jar") {
 }
 
 tasks.named<Jar>("sourcesJar") {
-    from("src/main/java9") {
-        into("META-INF/versions/9")
-    }
     from("src/main/java22") {
         into("META-INF/versions/22")
     }
