@@ -45,12 +45,12 @@ val compileJava22 = tasks.register<JavaCompile>("compileJava22") {
 
 tasks.named<Jar>("jar") {
     dependsOn(compileJava22)
-    archiveBaseName.set("webp4j-core")
+    archiveBaseName.set("webp4j")
     manifest {
         attributes(
             "Multi-Release" to "true",
-            "Automatic-Module-Name" to "${project.group}.core",
-            "Implementation-Title" to "webp4j-core",
+            "Automatic-Module-Name" to project.group.toString(),
+            "Implementation-Title" to "webp4j",
             "Implementation-Version" to project.version
         )
     }
@@ -85,7 +85,7 @@ tasks.named<Test>("test") {
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
-            artifactId = "webp4j-core"
+            artifactId = "webp4j"
             from(components["java"])
             pom {
                 name.set("webp4j")

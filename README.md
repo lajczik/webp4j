@@ -58,9 +58,9 @@ WARNING: Restricted methods will be blocked in a future release unless native ac
 
 **How to suppress the warning:**
 
-- **Module path** (recommended): WebP4j ships as a Multi-Release JAR with a named module `xyz.lychee.webp4j.core`. Place the JAR on the module path and use:
+- **Module path** (recommended): WebP4j ships as a Multi-Release JAR with a named module `xyz.lychee.webp4j`. Place the JAR on the module path and use:
   ```
-  --module-path webp4j-core.jar --add-modules xyz.lychee.webp4j.core --enable-native-access=xyz.lychee.webp4j.core
+  --module-path webp4j.jar --add-modules xyz.lychee.webp4j --enable-native-access=xyz.lychee.webp4j
   ```
 - **Classpath**: If you use the traditional classpath, the module name is not recognized. Use the blanket flag instead:
   ```
@@ -73,12 +73,12 @@ WARNING: Restricted methods will be blocked in a future release unless native ac
 
 ### Maven
 
-[![Maven Central](https://img.shields.io/maven-central/v/xyz.lychee.webp4j/webp4j-core)](https://central.sonatype.com/artifact/xyz.lychee.webp4j/webp4j-core)
+[![Maven Central](https://img.shields.io/maven-central/v/xyz.lychee.webp4j/webp4j)](https://central.sonatype.com/artifact/xyz.lychee.webp4j/webp4j)
 
 ```xml
 <dependency>
     <groupId>xyz.lychee.webp4j</groupId>
-    <artifactId>webp4j-core</artifactId>
+    <artifactId>webp4j</artifactId>
     <version>2.5.0</version>
 </dependency>
 ```
@@ -86,7 +86,7 @@ WARNING: Restricted methods will be blocked in a future release unless native ac
 ### Gradle
 
 ```groovy
-implementation 'xyz.lychee.webp4j:webp4j-core:2.5.0'
+implementation 'xyz.lychee.webp4j:webp4j:2.5.0'
 ```
 
 ## API Overview

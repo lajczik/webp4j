@@ -56,7 +56,7 @@ jobs:
     - name: Build and package JAR
       run: |
         ./gradlew jar sourcesJar javadocJar -x test
-        echo "JAR contents:" && jar tf build/libs/webp4j-core-*.jar | grep native/ || true
+        echo "JAR contents:" && jar tf build/libs/webp4j-*.jar | grep native/ || true
 
     - name: Publish to Maven Central
       env:
@@ -106,12 +106,12 @@ jobs:
     - name: Build JAR with all native libraries
       run: |
         ./gradlew jar sourcesJar javadocJar -x test
-        echo "JAR contents:" && jar tf build/libs/webp4j-core-*.jar | grep native/ || true
+        echo "JAR contents:" && jar tf build/libs/webp4j-*.jar | grep native/ || true
 
     - name: Prepare release files
       run: |
         mkdir -p release-files
-        cp build/libs/webp4j-core-*.jar release-files/ 2>/dev/null || true
+        cp build/libs/webp4j-*.jar release-files/ 2>/dev/null || true
         cd release-files
         sha256sum *.jar > SHA256SUMS 2>/dev/null || true
         cat SHA256SUMS
@@ -138,14 +138,14 @@ jobs:
           ```xml
           <dependency>
             <groupId>xyz.lychee.webp4j</groupId>
-            <artifactId>webp4j-core</artifactId>
+            <artifactId>webp4j</artifactId>
             <version>${{ steps.version.outputs.VERSION }}</version>
           </dependency>
           ```
 
           **Gradle:**
           ```gradle
-          implementation 'xyz.lychee.webp4j:webp4j-core:${{ steps.version.outputs.VERSION }}'
+          implementation 'xyz.lychee.webp4j:webp4j:${{ steps.version.outputs.VERSION }}'
           ```
 
           ### Supported Platforms

@@ -1,1 +1,1 @@
-rootProject.name = "webp4j-core"
+rootProject.name = "webp4j"
