@@ -1,5 +1,8 @@
 package dev.matrixlab.webp4j.model;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.awt.image.BufferedImage;
 
 /**
@@ -8,6 +11,8 @@ import java.awt.image.BufferedImage;
  * Each frame contains the fully composited image data and its
  * cumulative timestamp in milliseconds from the start of the animation.
  */
+@Getter
+@Setter
 public class AnimatedWebPFrame {
 
     private BufferedImage image;
@@ -27,48 +32,6 @@ public class AnimatedWebPFrame {
      */
     public AnimatedWebPFrame(BufferedImage image, int timestamp) {
         this.image = image;
-        this.timestamp = timestamp;
-    }
-
-    /**
-     * Gets the frame image.
-     * <p>
-     * This is a fully reconstructed canvas-sized RGBA image,
-     * not just the frame sub-rectangle.
-     *
-     * @return The frame as a BufferedImage
-     */
-    public BufferedImage getImage() {
-        return image;
-    }
-
-    /**
-     * Sets the frame image.
-     *
-     * @param image The frame image
-     */
-    public void setImage(BufferedImage image) {
-        this.image = image;
-    }
-
-    /**
-     * Gets the cumulative timestamp of this frame in milliseconds.
-     * <p>
-     * The timestamp represents the time at which this frame should be
-     * displayed, measured from the start of the animation.
-     *
-     * @return Timestamp in milliseconds
-     */
-    public int getTimestamp() {
-        return timestamp;
-    }
-
-    /**
-     * Sets the cumulative timestamp of this frame.
-     *
-     * @param timestamp Timestamp in milliseconds
-     */
-    public void setTimestamp(int timestamp) {
         this.timestamp = timestamp;
     }
 
