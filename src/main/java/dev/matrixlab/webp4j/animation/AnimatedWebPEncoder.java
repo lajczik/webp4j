@@ -3,17 +3,20 @@ package dev.matrixlab.webp4j.animation;
 import dev.matrixlab.webp4j.gif.GifToWebPConfig;
 import dev.matrixlab.webp4j.internal.NativeWebP;
 import dev.matrixlab.webp4j.internal.PixelConverter;
+import dev.matrixlab.webp4j.utils.WebPEncoder;
 
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 
 /**
  * Encoder for creating animated WebP images from BufferedImage frames.
  * <p>
- * This class provides methods to create animated WebP images directly from
- * Java BufferedImage objects without requiring an intermediate GIF file.
+ * This class builds the WebP animation container directly in Java using RIFF chunks
+ * (VP8X, ANIM, ANMF), delegating only individual frame compression to libwebp.
  *
  * @author MrNanko
  */
@@ -25,14 +28,7 @@ public final class AnimatedWebPEncoder {
 
     /**
      * Creates an animated WebP from a list of BufferedImage frames.
-     * <p>
-     * Example usage:
-     * <pre>{@code
-     * List<BufferedImage> frames = Arrays.asList(frame1, frame2, frame3);
-     * int[] delays = {100, 100, 100};  // milliseconds per frame
-     * GifToWebPConfig config = GifToWebPConfig.createLosslessConfig();
-     * byte[] webp = AnimatedWebPEncoder.encode(frames, delays, config);
-     * }</pre>
+     * Container creation, framing, and chunk composition are handled entirely in Java.
      *
      * @param frames List of BufferedImage frames (must not be empty)
      * @param delays Array of frame delays in milliseconds (must match frame count)
@@ -52,30 +48,97 @@ public final class AnimatedWebPEncoder {
             config = new GifToWebPConfig();
         }
 
-        // Get canvas dimensions from first frame
+        if (NativeWebP.isAvailable()) {
+            try {
+                return encodeNative(frames, delays, config);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        encode(baos, frames, delays, config);
+        return baos.toByteArray();
+    }
+
+    /**
+     * Streams an animated WebP directly to an output stream by assembling container chunks in Java.
+     *
+     * @param out    Destination output stream
+     * @param frames List of frames to encode
+     * @param delays Delays in milliseconds for each frame
+     * @param config Conversion configuration
+     * @throws IOException If encoding fails
+     */
+    public static void encode(OutputStream out, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null");
+        }
+        if (frames == null || frames.isEmpty()) {
+            throw new IllegalArgumentException("Frames list cannot be null or empty");
+        }
+        if (delays == null || delays.length != frames.size()) {
+            throw new IllegalArgumentException("Delays array length must match frame count");
+        }
+        if (config == null) {
+            config = new GifToWebPConfig();
+        }
+
+        BufferedImage first = frames.get(0);
+        int width = first.getWidth();
+        int height = first.getHeight();
+
+        boolean hasAlpha = false;
+        for (BufferedImage frame : frames) {
+            if (frame.getWidth() != width || frame.getHeight() != height) {
+                throw new IllegalArgumentException(
+                        String.format("Frame dimensions (%dx%d) don't match canvas (%dx%d)",
+                                frame.getWidth(), frame.getHeight(), width, height));
+            }
+            if (frame.getColorModel().hasAlpha()) {
+                hasAlpha = true;
+            }
+        }
+
+        int loopCount = config.getLoopCount() == -1 ? 0 : config.getLoopCount();
+        try (WebPEncoder encoder = new WebPEncoder(out, hasAlpha, frames.size(), width, height, loopCount, 0)) {
+            for (int i = 0; i < frames.size(); i++) {
+                BufferedImage frame = frames.get(i);
+                int duration = delays[i];
+                encoder.setFrame(i, frame, duration, config.getQuality(), config.isLossless());
+            }
+            encoder.flush();
+        }
+    }
+
+    /**
+     * Legacy encoder that delegates the entire multi-frame pipeline to C's WebPAnimEncoder.
+     */
+    public static byte[] encodeNative(List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IllegalArgumentException("Frames list cannot be null or empty");
+        }
+        if (delays == null || delays.length != frames.size()) {
+            throw new IllegalArgumentException("Delays array length must match frame count");
+        }
+        if (config == null) {
+            config = new GifToWebPConfig();
+        }
+
         BufferedImage firstFrame = frames.get(0);
         int width = firstFrame.getWidth();
         int height = firstFrame.getHeight();
 
-        // Collect packed ARGB pixels per frame. TYPE_INT_ARGB frames (e.g. from
-        // FrameNormalizer) contribute their live backing arrays — zero-copy —
-        // so the arrays must never be modified.
         int[][] framePixels = new int[frames.size()][];
-
         for (int i = 0; i < frames.size(); i++) {
             BufferedImage frame = frames.get(i);
-
-            // Validate frame dimensions match canvas
             if (frame.getWidth() != width || frame.getHeight() != height) {
                 throw new IllegalArgumentException(
                         String.format("Frame %d dimensions (%dx%d) don't match canvas (%dx%d)",
                                 i, frame.getWidth(), frame.getHeight(), width, height));
             }
-
             framePixels[i] = PixelConverter.toArgbPixels(frame, true);
         }
 
-        // Encode using native WebPAnimEncoder
         byte[] result = NativeWebP.encodeAnimated(
                 framePixels,
                 delays,
@@ -84,7 +147,7 @@ public final class AnimatedWebPEncoder {
                 config.getQuality(),
                 config.isLossless(),
                 config.getCompressionMethod(),
-                config.getLoopCount() == -1 ? 0 : config.getLoopCount(),  // Default to infinite loop
+                config.getLoopCount() == -1 ? 0 : config.getLoopCount(),
                 config.getKmin(),
                 config.getKmax(),
                 config.isMinimizeSize(),
@@ -93,7 +156,7 @@ public final class AnimatedWebPEncoder {
         );
 
         if (result == null || result.length == 0) {
-            throw new IOException("Animated WebP encoding failed");
+            throw new IOException("Animated WebP native encoding failed");
         }
 
         return result;
@@ -101,8 +164,6 @@ public final class AnimatedWebPEncoder {
 
     /**
      * Creates an animated WebP with uniform delay for all frames.
-     * <p>
-     * This is a convenience method when all frames have the same delay.
      *
      * @param frames  List of BufferedImage frames (must not be empty)
      * @param delay   Delay in milliseconds for each frame

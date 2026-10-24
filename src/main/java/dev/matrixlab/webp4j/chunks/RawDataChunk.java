@@ -1,4 +1,4 @@
-package xyz.lychee.discordbot.webp;
+package dev.matrixlab.webp4j.chunks;
 
 import lombok.Getter;
 

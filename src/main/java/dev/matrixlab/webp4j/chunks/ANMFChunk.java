@@ -1,9 +1,9 @@
-package xyz.lychee.discordbot.webp;
+package dev.matrixlab.webp4j.chunks;
 
 import java.io.IOException;
 import java.io.OutputStream;
 
-import static xyz.lychee.discordbot.webp.Util.*;
+import static dev.matrixlab.webp4j.utils.Util.*;
 
 public class ANMFChunk extends LISTChunk {
 

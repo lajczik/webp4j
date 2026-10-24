@@ -1,4 +1,4 @@
-package xyz.lychee.discordbot.webp;
+package dev.matrixlab.webp4j.chunks;
 
 public class WebPChunk extends RIFFChunk {
     static final byte[] WEBP = new byte[]{'W', 'E', 'B', 'P'};

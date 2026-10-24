@@ -14,7 +14,9 @@ module dev.matrixlab.webp4j.core {
     exports dev.matrixlab.webp4j;
     exports dev.matrixlab.webp4j.animation;
     exports dev.matrixlab.webp4j.batch;
+    exports dev.matrixlab.webp4j.chunks;
     exports dev.matrixlab.webp4j.exception;
     exports dev.matrixlab.webp4j.gif;
     exports dev.matrixlab.webp4j.model;
+    exports dev.matrixlab.webp4j.utils;
 }

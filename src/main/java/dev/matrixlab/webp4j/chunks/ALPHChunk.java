@@ -1,4 +1,4 @@
-package xyz.lychee.discordbot.webp;
+package dev.matrixlab.webp4j.chunks;
 
 public class ALPHChunk extends RawDataChunk {
     public static final int PREPROCESSING_MASK = 3 << 4;

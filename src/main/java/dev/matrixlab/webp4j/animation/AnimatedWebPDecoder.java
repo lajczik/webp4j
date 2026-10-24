@@ -1,9 +1,15 @@
 package dev.matrixlab.webp4j.animation;
 
+import dev.matrixlab.webp4j.chunks.ANIMChunk;
+import dev.matrixlab.webp4j.chunks.ANMFChunk;
+import dev.matrixlab.webp4j.chunks.Chunk;
+import dev.matrixlab.webp4j.chunks.ChunkFactory;
+import dev.matrixlab.webp4j.chunks.VP8XChunk;
 import dev.matrixlab.webp4j.internal.NativeWebP;
 import dev.matrixlab.webp4j.internal.PixelConverter;
 import dev.matrixlab.webp4j.model.AnimatedWebPData;
 import dev.matrixlab.webp4j.model.AnimatedWebPFrame;
+import dev.matrixlab.webp4j.model.AnimationInfo;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -15,17 +21,6 @@ import java.util.List;
  * <p>
  * This class uses the libwebp WebPAnimDecoder API to decode animated WebP
  * images into individual frames as BufferedImage objects with their timestamps.
- * <p>
- * Example usage:
- * <pre>{@code
- * byte[] webPData = Files.readAllBytes(Paths.get("animation.webp"));
- * AnimatedWebPData result = AnimatedWebPDecoder.decode(webPData);
- * for (AnimatedWebPFrame frame : result.getFrames()) {
- *     BufferedImage image = frame.getImage();
- *     int timestamp = frame.getTimestamp();
- * }
- * int[] delays = result.getDelays(); // per-frame delays in ms
- * }</pre>
  *
  * @author MrNanko
  */
@@ -33,6 +28,37 @@ public final class AnimatedWebPDecoder {
 
     private AnimatedWebPDecoder() {
         throw new AssertionError("Cannot instantiate utility class.");
+    }
+
+    /**
+     * Extracts animation metadata (dimensions, loop count, frame count, transparency)
+     * by scanning RIFF WebP chunks directly without decoding any pixel rasters.
+     *
+     * @param webPData Byte array containing the animated WebP image data
+     * @return AnimationInfo populated from container chunks
+     * @throws IOException If chunk parsing fails
+     */
+    public static AnimationInfo getAnimationInfo(byte[] webPData) throws IOException {
+        if (webPData == null || webPData.length == 0) {
+            throw new IllegalArgumentException("The input WebP data cannot be null or empty.");
+        }
+        List<Chunk> chunks = ChunkFactory.parseAll(webPData);
+        AnimationInfo info = new AnimationInfo();
+        int frameCount = 0;
+        for (Chunk chunk : chunks) {
+            if (chunk instanceof VP8XChunk) {
+                VP8XChunk vp8x = (VP8XChunk) chunk;
+                info.setWidth(vp8x.getCanvasWidth());
+                info.setHeight(vp8x.getCanvasHeight());
+                info.setHasTransparency(vp8x.hasALPHFlag());
+            } else if (chunk instanceof ANIMChunk) {
+                info.setLoopCount(((ANIMChunk) chunk).getLoopCount());
+            } else if (chunk instanceof ANMFChunk) {
+                frameCount++;
+            }
+        }
+        info.setFrameCount(frameCount);
+        return info;
     }
 
     /**

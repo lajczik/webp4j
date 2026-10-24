@@ -1,11 +1,11 @@
-package xyz.lychee.discordbot.webp;
+package dev.matrixlab.webp4j.chunks;
 
 import lombok.Getter;
 
 import java.io.IOException;
 import java.io.OutputStream;
 
-import static xyz.lychee.discordbot.webp.Util.*;
+import static dev.matrixlab.webp4j.utils.Util.*;
 
 @Getter
 public class ANIMChunk extends Chunk {

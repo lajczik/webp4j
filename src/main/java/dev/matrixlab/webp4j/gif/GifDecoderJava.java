@@ -96,7 +96,7 @@ public final class GifDecoderJava {
                     frame.topOffset = offsets[1];
 
                     // Check for transparency
-                    if (extractTransparencyIndex(frameMetadata) >= 0) {
+                    if (image.getColorModel().hasAlpha() || extractTransparencyIndex(frameMetadata) >= 0) {
                         data.hasTransparency = true;
                     }
 

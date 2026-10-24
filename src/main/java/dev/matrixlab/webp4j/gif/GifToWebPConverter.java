@@ -3,10 +3,12 @@ package dev.matrixlab.webp4j.gif;
 import dev.matrixlab.webp4j.internal.NativeWebP;
 import dev.matrixlab.webp4j.internal.PixelConverter;
 import dev.matrixlab.webp4j.model.AnimationInfo;
+import dev.matrixlab.webp4j.utils.WebPEncoder;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.function.Supplier;
 
@@ -152,12 +154,8 @@ public final class GifToWebPConverter {
     }
 
     /**
-     * Fallback implementation: Encodes GIF to WebP using Java ImageIO for GIF decoding.
-     * <p>
-     * This method is used when native giflib is unavailable. It decodes the GIF
-     * using Java's ImageIO, then encodes to WebP using native WebPAnimEncoder.
-     * <p>
-     * Package-private for testing purposes.
+     * Fallback implementation: Encodes GIF to WebP using Java ImageIO for GIF decoding
+     * and Java-side chunk container assembly.
      *
      * @param gifData Byte array containing the GIF image data
      * @param config  Configuration for conversion
@@ -169,51 +167,31 @@ public final class GifToWebPConverter {
         GifDecoderJava.GifData gif = GifDecoderJava.decodeGif(gifData);
 
         if (config.isExtractFirstFrameOnly() || gif.frames.size() == 1) {
-            // Static GIF or extract first frame only: use existing single-frame encoding
             BufferedImage firstFrame = gif.frames.get(0).image;
             return encodeSingleFrame(firstFrame, config.getQuality(), config.isLossless(),
                     config.isMultiThreaded());
         }
 
-        // Animated GIF: encode all frames using native WebPAnimEncoder
-        int[][] framePixels = new int[gif.frames.size()][];
-        int[] delays = new int[gif.frames.size()];
-
-        // Maintain a canvas for frame composition (GIF frames may be incremental)
+        // Animated GIF: assemble WebP chunks directly in Java
         BufferedImage canvas = new BufferedImage(gif.width, gif.height, BufferedImage.TYPE_INT_ARGB);
         int[] canvasPixels = ((DataBufferInt) canvas.getRaster().getDataBuffer()).getData();
         BufferedImage previousFrame = null;
 
-        for (int i = 0; i < gif.frames.size(); i++) {
-            previousFrame = composeFrame(gif, i, canvas, previousFrame);
-            // The canvas is reused for the next frame, so its pixels must be cloned
-            // here — one copy per frame, with no format conversion.
-            framePixels[i] = canvasPixels.clone();
-            delays[i] = gif.frames.get(i).delayMs;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        int loopCount = config.getLoopCount() == -1 ? gif.loopCount : config.getLoopCount();
+
+        try (WebPEncoder encoder = new WebPEncoder(baos, gif.hasTransparency, gif.frames.size(),
+                gif.width, gif.height, loopCount, 0)) {
+            for (int i = 0; i < gif.frames.size(); i++) {
+                previousFrame = composeFrame(gif, i, canvas, previousFrame);
+                int duration = gif.frames.get(i).delayMs;
+                encoder.setFrame(i, canvasPixels.clone(), 0, 0, gif.width, gif.height,
+                        duration, 0, config.getQuality(), config.isLossless());
+            }
+            encoder.flush();
         }
 
-        // Use native WebPAnimEncoder for animated output
-        byte[] result = NativeWebP.encodeAnimated(
-                framePixels,
-                delays,
-                gif.width,
-                gif.height,
-                config.getQuality(),
-                config.isLossless(),
-                config.getCompressionMethod(),
-                config.getLoopCount() == -1 ? gif.loopCount : config.getLoopCount(),
-                config.getKmin(),
-                config.getKmax(),
-                config.isMinimizeSize(),
-                config.isAllowMixed(),
-                config.isMultiThreaded()
-        );
-
-        if (result == null || result.length == 0) {
-            throw new IOException("Animated WebP encoding failed");
-        }
-
-        return result;
+        return baos.toByteArray();
     }
 
     /**
@@ -223,67 +201,56 @@ public final class GifToWebPConverter {
                                             boolean multiThreaded) throws IOException {
         boolean hasAlpha = image.getColorModel().hasAlpha();
         int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-
-        byte[] result = NativeWebP.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless,
-                hasAlpha, multiThreaded);
+        byte[] result = NativeWebP.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless, hasAlpha, multiThreaded);
         if (result == null || result.length == 0) {
-            throw new IOException("WebP encoding failed.");
+            throw new IOException("Failed to encode single frame to WebP");
         }
-
         return result;
     }
 
     /**
-     * Composes a single GIF frame onto a canvas, applying disposal methods and frame composition.
-     * <p>
-     * This method handles the GIF animation frame composition logic:
-     * <ul>
-     *   <li>Applies the previous frame's disposal method (clear or restore)</li>
-     *   <li>Saves the canvas state if needed for future restoration (disposal method 3)</li>
-     *   <li>Draws the current frame onto the canvas at its offset position</li>
-     * </ul>
-     *
-     * @param gif           GIF data containing all frames
-     * @param frameIndex    Index of the current frame to compose
-     * @param canvas        The canvas to draw onto (will be modified)
-     * @param previousFrame The saved previous frame state (for disposal method 3), may be null
-     * @return The updated previousFrame (may be newly created or remain the same)
+     * Composes a single GIF frame onto the accumulator canvas based on disposal method.
      */
     private static BufferedImage composeFrame(GifDecoderJava.GifData gif, int frameIndex,
                                               BufferedImage canvas, BufferedImage previousFrame) {
         GifDecoderJava.GifFrame frame = gif.frames.get(frameIndex);
 
-        // Apply disposal method from the PREVIOUS frame (before drawing current frame)
-        if (frameIndex > 0 && gif.frames.get(frameIndex - 1).disposeMethod == 2) {
-            // Disposal method 2: Restore to background (clear to transparent)
-            Graphics2D g2d = canvas.createGraphics();
-            try {
-                g2d.setComposite(AlphaComposite.Clear);
-                GifDecoderJava.GifFrame prevFrame = gif.frames.get(frameIndex - 1);
-                g2d.fillRect(
-                        prevFrame.leftOffset,
-                        prevFrame.topOffset,
-                        prevFrame.image.getWidth(),
-                        prevFrame.image.getHeight()
-                );
-            } finally {
-                g2d.dispose();
-            }
-        } else if (frameIndex > 0 && gif.frames.get(frameIndex - 1).disposeMethod == 3 && previousFrame != null) {
-            // Disposal method 3: Restore to previous frame
-            Graphics2D g2d = canvas.createGraphics();
-            try {
-                g2d.setComposite(AlphaComposite.Src);
-                g2d.drawImage(previousFrame, 0, 0, null);
-            } finally {
-                g2d.dispose();
+        if (frameIndex > 0) {
+            GifDecoderJava.GifFrame prevFrame = gif.frames.get(frameIndex - 1);
+            switch (prevFrame.disposeMethod) {
+                case 2: // RESTORE_TO_BACKGROUND
+                    Graphics2D bgG2d = canvas.createGraphics();
+                    try {
+                        bgG2d.setComposite(AlphaComposite.Clear);
+                        bgG2d.fillRect(
+                                prevFrame.leftOffset,
+                                prevFrame.topOffset,
+                                prevFrame.image.getWidth(),
+                                prevFrame.image.getHeight()
+                        );
+                    } finally {
+                        bgG2d.dispose();
+                    }
+                    break;
+                case 3: // RESTORE_PREVIOUS
+                    if (previousFrame != null) {
+                        Graphics2D restoreG2d = canvas.createGraphics();
+                        try {
+                            restoreG2d.setComposite(AlphaComposite.Src);
+                            restoreG2d.drawImage(previousFrame, 0, 0, null);
+                        } finally {
+                            restoreG2d.dispose();
+                        }
+                    }
+                    break;
+                default:
+                    // 0 or 1: DO_NOT_DISPOSE
+                    break;
             }
         }
 
-        // Save current canvas state if next frame needs it (disposal method 3)
         BufferedImage updatedPreviousFrame = previousFrame;
         if (frameIndex < gif.frames.size() - 1 && frame.disposeMethod == 3) {
-            updatedPreviousFrame = new BufferedImage(gif.width, gif.height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2d = updatedPreviousFrame.createGraphics();
             try {
                 g2d.drawImage(canvas, 0, 0, null);
@@ -292,7 +259,6 @@ public final class GifToWebPConverter {
             }
         }
 
-        // Draw current frame onto canvas at its offset position
         Graphics2D g2d = canvas.createGraphics();
         try {
             g2d.setComposite(AlphaComposite.SrcOver);
