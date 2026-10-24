@@ -53,7 +53,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
-          cache: 'maven'
 
       - name: Download all native libraries (from current run)
         if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.rebuild_natives)
@@ -75,14 +74,18 @@ jobs:
         run: ls -lh src/main/resources/native/
         shell: bash
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Run tests
-        run: mvn -B test
+        run: ./gradlew test
 
       - name: Verify JAR contents
         if: always()
         run: |
+          ./gradlew jar
           echo "Checking if native libraries are included in JAR..."
-          jar tf target/webp4j-*.jar | grep "native/" || echo "No native libraries found in JAR"
+          jar tf build/libs/webp4j-*.jar | grep "native/" || echo "No native libraries found in JAR"
         shell: bash
 
       - name: Upload test results and output
@@ -91,6 +94,6 @@ jobs:
         with:
           name: test-results-${{ matrix.platform }}
           path: |
-            target/surefire-reports/
-            target/test-output/
+            build/reports/tests/test/
+            build/test-results/test/
           retention-days: 7

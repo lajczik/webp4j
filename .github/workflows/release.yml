@@ -37,12 +37,11 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: ${{ env.JAVA_VERSION }}
-        cache: 'maven'
-        server-id: 'ossrh'
-        server-username: OSSRH_USERNAME
-        server-password: OSSRH_PASSWORD
         gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
         gpg-passphrase: GPG_PASSPHRASE
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
 
     - name: Download all native artifacts
       uses: actions/download-artifact@v5
@@ -56,16 +55,17 @@ jobs:
 
     - name: Build and package JAR
       run: |
-        mvn -B clean package -DskipTests
-        echo "JAR contents:" && jar tf target/webp4j-*.jar | grep native/ || true
+        ./gradlew jar sourcesJar javadocJar -x test
+        echo "JAR contents:" && jar tf build/libs/webp4j-core-*.jar | grep native/ || true
 
     - name: Publish to Maven Central
       env:
         OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
         OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
-        GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_PRIVATE_KEY }}
+        ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
       run: |
-        mvn -B deploy -DskipTests
+        ./gradlew publish -x test
 
   # ============================================
   # Create GitHub Release
@@ -89,7 +89,9 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: ${{ env.JAVA_VERSION }}
-        cache: 'maven'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
 
     - name: Download all native artifacts
       uses: actions/download-artifact@v5
@@ -103,13 +105,13 @@ jobs:
 
     - name: Build JAR with all native libraries
       run: |
-        mvn -B clean package -DskipTests
-        echo "JAR contents:" && jar tf target/webp4j-*.jar | grep native/ || true
+        ./gradlew jar sourcesJar javadocJar -x test
+        echo "JAR contents:" && jar tf build/libs/webp4j-core-*.jar | grep native/ || true
 
     - name: Prepare release files
       run: |
         mkdir -p release-files
-        cp target/webp4j-*.jar release-files/ 2>/dev/null || true
+        cp build/libs/webp4j-core-*.jar release-files/ 2>/dev/null || true
         cd release-files
         sha256sum *.jar > SHA256SUMS 2>/dev/null || true
         cat SHA256SUMS
@@ -125,7 +127,10 @@ jobs:
           ## WebP4j Release
 
           ### What's Changed
-          - **Multi-threaded encoding** — Animated WebP and GIF→WebP now multi-thread each frame's compression via libwebp's `thread_level`, for a multi-core speedup with bit-identical output. Enabled by default and configurable through `GifToWebPConfig.setMultiThreaded(...)`; single-image encoding exposes the same knob via a new `WebPCodec.encodeImage(image, quality, lossless, multiThreaded)` overload.
+          - **Gradle 9.8.1 Build System** — Migrated to Gradle wrapper and Multi-Release JAR packaging.
+          - **Java 22+ Foreign Function & Memory (FFM) API** — Direct C ABI downcalls via `java.lang.foreign` for zero-copy encode/decode on modern Java.
+          - **Lombok Integration** — Streamlined models and configuration.
+          - **Container Parsing in Java** — WebP RIFF chunk container parsing and framing moved to Java.
 
           ### Installation
 

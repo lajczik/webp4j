@@ -39,3 +39,7 @@ build/
 src/main/resources/native/*.dll
 src/main/resources/native/*.so
 src/main/resources/native/*.dylib
+
+.gradle/
+
+build-native/
