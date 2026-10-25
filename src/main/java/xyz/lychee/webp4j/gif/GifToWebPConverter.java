@@ -1,7 +1,7 @@
 package xyz.lychee.webp4j.gif;
 
 import xyz.lychee.webp4j.common.NativeBridge;
-import xyz.lychee.webp4j.internal.PixelConverter;
+import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.utils.WebPEncoder;
 

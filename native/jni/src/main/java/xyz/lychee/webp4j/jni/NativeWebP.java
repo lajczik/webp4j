@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.internal;
+package xyz.lychee.webp4j.jni;
 
 import xyz.lychee.webp4j.common.NativeBridge;
 import xyz.lychee.webp4j.common.NativeLibraryLoader;

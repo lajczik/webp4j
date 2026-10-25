@@ -51,7 +51,7 @@ Starting from Java 22, the JVM warns when libraries load native code via JNI ([J
 
 ```
 WARNING: A restricted method in java.lang.System has been called
-WARNING: java.lang.System::load has been called by xyz.lychee.webp4j.internal.NativeLibraryLoader in an unnamed module
+WARNING: java.lang.System::load has been called by xyz.lychee.webp4j.common.NativeLibraryLoader in an unnamed module
 WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
 WARNING: Restricted methods will be blocked in a future release unless native access is enabled
 ```

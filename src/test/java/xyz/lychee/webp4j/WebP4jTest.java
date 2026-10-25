@@ -2,7 +2,7 @@ package xyz.lychee.webp4j;
 
 import xyz.lychee.webp4j.gif.GifToWebPConfig;
 import xyz.lychee.webp4j.gif.GifToWebPConverter;
-import xyz.lychee.webp4j.internal.NativeWebP;
+import xyz.lychee.webp4j.jni.NativeWebP;
 import xyz.lychee.webp4j.model.*;
 import org.junit.jupiter.api.Test;
 

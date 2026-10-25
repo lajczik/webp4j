@@ -38,7 +38,7 @@ tasks.named<Jar>("jar") {
     archiveBaseName.set("webp4j-native-jni")
     manifest {
         attributes(
-            "Automatic-Module-Name" to "xyz.lychee.webp4j.internal",
+            "Automatic-Module-Name" to "xyz.lychee.webp4j.jni",
             "Implementation-Title" to "webp4j-native-jni",
             "Implementation-Version" to project.version
         )

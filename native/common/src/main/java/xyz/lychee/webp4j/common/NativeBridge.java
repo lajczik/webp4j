@@ -32,7 +32,7 @@ public final class NativeBridge {
 
         if (chosen == null && !"ffm".equalsIgnoreCase(preferred)) {
             try {
-                Class<?> jniClass = Class.forName("xyz.lychee.webp4j.internal.JNIWebPBackend");
+                Class<?> jniClass = Class.forName("xyz.lychee.webp4j.jni.JNIWebPBackend");
                 WebPBackend jniBackend = (WebPBackend) jniClass.getDeclaredConstructor().newInstance();
                 if (jniBackend.isAvailable()) {
                     chosen = jniBackend;

@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.internal;
+package xyz.lychee.webp4j.utils;
 
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;

@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.internal;
+package xyz.lychee.webp4j.jni;
 
 import xyz.lychee.webp4j.common.WebPBackend;
 import xyz.lychee.webp4j.model.AnimatedWebPData;

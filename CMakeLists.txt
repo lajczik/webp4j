@@ -250,11 +250,11 @@ target_include_directories(gif PUBLIC ${GIFLIB_SOURCE_DIR})
   endif()
 
   # Source files
-  set(SOURCES src/main/c/webp4j.c)
+  set(SOURCES native/jni/src/main/c/webp4j.c)
 
   # Add GIF decoder if giflib is available
   if(GIFLIB_FOUND)
-      list(APPEND SOURCES src/main/c/gif_decoder.c)
+      list(APPEND SOURCES native/jni/src/main/c/gif_decoder.c)
       add_compile_definitions(HAVE_GIFLIB=1)
       message(STATUS "GIF decoder enabled")
   else()
@@ -397,7 +397,7 @@ target_include_directories(gif PUBLIC ${GIFLIB_SOURCE_DIR})
   # ============================================
 
   # Install to Maven resources directory
-  set(INSTALL_DIR "${CMAKE_SOURCE_DIR}/src/main/resources/native")
+  set(INSTALL_DIR "${CMAKE_SOURCE_DIR}/native/jni/src/main/resources/native")
 
   # Create installation directory if it doesn't exist
   file(MAKE_DIRECTORY ${INSTALL_DIR})

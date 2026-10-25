@@ -1,6 +1,6 @@
 package xyz.lychee.webp4j;
 
-import xyz.lychee.webp4j.internal.NativeWebP;
+import xyz.lychee.webp4j.jni.NativeWebP;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 import org.junit.jupiter.api.Test;
 

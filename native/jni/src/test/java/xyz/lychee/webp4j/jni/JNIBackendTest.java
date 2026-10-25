@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.internal;
+package xyz.lychee.webp4j.jni;
 
 import org.junit.jupiter.api.Test;
 import xyz.lychee.webp4j.common.WebPBackend;
