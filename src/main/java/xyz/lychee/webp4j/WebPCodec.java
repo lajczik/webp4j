@@ -6,7 +6,7 @@ import xyz.lychee.webp4j.batch.BatchProcessor;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.gif.GifToWebPConfig;
 import xyz.lychee.webp4j.gif.GifToWebPConverter;
-import xyz.lychee.webp4j.internal.NativeWebP;
+import xyz.lychee.webp4j.common.NativeBridge;
 import xyz.lychee.webp4j.internal.PixelConverter;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;
@@ -66,7 +66,7 @@ public final class WebPCodec {
      */
     public static boolean isAvailable() {
         try {
-            return NativeWebP.isAvailable();
+            return NativeBridge.isAvailable();
         } catch (Throwable t) {
             return false;
         }
@@ -84,7 +84,7 @@ public final class WebPCodec {
      */
     public static String libWebPVersion() {
         try {
-            return NativeWebP.libWebPVersion();
+            return NativeBridge.libWebPVersion();
         } catch (Throwable t) {
             return null;
         }
@@ -98,7 +98,7 @@ public final class WebPCodec {
      */
     public static boolean isFFM() {
         try {
-            return NativeWebP.isFFM();
+            return NativeBridge.isFFM();
         } catch (Throwable t) {
             return false;
         }
@@ -111,7 +111,7 @@ public final class WebPCodec {
      */
     public static String getBackendName() {
         try {
-            return NativeWebP.getBackendName();
+            return NativeBridge.getBackendName();
         } catch (Throwable t) {
             return "JNI";
         }
@@ -140,7 +140,7 @@ public final class WebPCodec {
             try {
                 if (isAvailable()) {
                     int[] dimensions = new int[2];
-                    if (NativeWebP.getInfo(webPData, dimensions)) {
+                    if (NativeBridge.getInfo(webPData, dimensions)) {
                         return dimensions;
                     }
                 }
@@ -168,7 +168,7 @@ public final class WebPCodec {
             try {
                 if (isAvailable()) {
                     WebPBitstreamFeatures features = new WebPBitstreamFeatures();
-                    int status = NativeWebP.getFeatures(webPData, webPData.length, features);
+                    int status = NativeBridge.getFeatures(webPData, webPData.length, features);
                     if (VP8StatusCode.getStatusCode(status) == VP8StatusCode.VP8_STATUS_OK) {
                         return features;
                     }
@@ -328,10 +328,10 @@ public final class WebPCodec {
         byte[] encodedWebP;
         byte[] bgrPixels = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(bufferedImage);
         if (bgrPixels != null) {
-            encodedWebP = NativeWebP.encodeBgr(bgrPixels, width, height, quality, lossless, multiThreaded);
+            encodedWebP = NativeBridge.encodeBgr(bgrPixels, width, height, quality, lossless, multiThreaded);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(bufferedImage, hasAlpha);
-            encodedWebP = NativeWebP.encode(pixels, width, height, quality, lossless, hasAlpha, multiThreaded);
+            encodedWebP = NativeBridge.encode(pixels, width, height, quality, lossless, hasAlpha, multiThreaded);
         }
         if (encodedWebP == null || encodedWebP.length == 0) {
             String encodingType = lossless ? "Lossless" : "Lossy";
@@ -369,7 +369,7 @@ public final class WebPCodec {
         boolean hasAlpha = features.isHasAlpha();
 
         int[] pixels = new int[width * height];
-        if (!NativeWebP.decodeInto(webPData, pixels, width * 4)) {
+        if (!NativeBridge.decodeInto(webPData, pixels, width * 4)) {
             throw new IOException("Failed to decode WebP data.");
         }
 

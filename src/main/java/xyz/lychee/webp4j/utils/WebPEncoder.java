@@ -1,15 +1,11 @@
 package xyz.lychee.webp4j.utils;
 
 import xyz.lychee.webp4j.chunks.*;
-import xyz.lychee.webp4j.internal.NativeWebP;
+import xyz.lychee.webp4j.common.NativeBridge;
 import xyz.lychee.webp4j.internal.PixelConverter;
 import lombok.Getter;
 
-import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.awt.image.DataBuffer;
-import java.awt.image.DataBufferByte;
-import java.awt.image.DataBufferInt;
 import java.io.ByteArrayOutputStream;
 import java.io.Flushable;
 import java.io.IOException;
@@ -46,56 +42,21 @@ public class WebPEncoder implements AutoCloseable, Flushable {
     }
 
     public Chunk[] getChunks() {
-        return chunkList.toArray(new Chunk[0]);
+        return chunkList.toArray(new Chunk[chunkList.size()]);
     }
 
     public static void encode(BufferedImage image, float quality, OutputStream out) throws IOException {
-        byte[] byteBuf;
-
+        if (image == null) {
+            throw new IllegalArgumentException("Image cannot be null.");
+        }
         boolean hasAlpha = image.getColorModel().hasAlpha();
-        int imageType = image.getType();
-        DataBuffer buffer = image.getRaster().getDataBuffer();
-        if ((imageType == BufferedImage.TYPE_INT_ARGB || imageType == BufferedImage.TYPE_INT_RGB)
-                && buffer instanceof DataBufferInt) {
-            DataBufferInt db = (DataBufferInt) buffer;
-            byteBuf = NativeWebP.encode(
-                    db.getData(),
-                    image.getWidth(),
-                    image.getHeight(),
-                    quality,
-                    quality >= 100,
-                    hasAlpha,
-                    true
-            );
-        } else if (imageType == BufferedImage.TYPE_3BYTE_BGR
-                && buffer instanceof DataBufferByte) {
-            DataBufferByte db = (DataBufferByte) buffer;
-            byteBuf = NativeWebP.encodeBgr(
-                    db.getData(),
-                    image.getWidth(),
-                    image.getHeight(),
-                    quality,
-                    quality >= 100,
-                    true
-            );
+        byte[] bgr = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(image);
+        byte[] byteBuf;
+        if (bgr != null) {
+            byteBuf = NativeBridge.encodeBgr(bgr, image.getWidth(), image.getHeight(), quality, quality >= 100, true);
         } else {
-            final int targetType = hasAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
-            BufferedImage tmp = new BufferedImage(image.getWidth(), image.getHeight(), targetType);
-            Graphics2D g = tmp.createGraphics();
-            try {
-                g.drawImage(image, 0, 0, null);
-            } finally {
-                g.dispose();
-            }
-            byteBuf = NativeWebP.encode(
-                    ((DataBufferInt) tmp.getRaster().getDataBuffer()).getData(),
-                    image.getWidth(),
-                    image.getHeight(),
-                    quality,
-                    quality >= 100,
-                    hasAlpha,
-                    true
-            );
+            int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
+            byteBuf = NativeBridge.encode(pixels, image.getWidth(), image.getHeight(), quality, quality >= 100, hasAlpha, true);
         }
 
         if (byteBuf == null || byteBuf.length == 0) {
@@ -130,10 +91,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] bitstream;
         byte[] bgr = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(image);
         if (bgr != null) {
-            bitstream = NativeWebP.encodeBgr(bgr, width, height, quality, lossless, true);
+            bitstream = NativeBridge.encodeBgr(bgr, width, height, quality, lossless, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-            bitstream = NativeWebP.encode(pixels, width, height, quality, lossless, hasAlpha, true);
+            bitstream = NativeBridge.encode(pixels, width, height, quality, lossless, hasAlpha, true);
         }
 
         if (bitstream == null || bitstream.length == 0) {
@@ -174,7 +135,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         }
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        WebPChunk webpChunk = new WebPChunk(containerChunks.toArray(new Chunk[0]));
+        WebPChunk webpChunk = new WebPChunk(containerChunks.toArray(new Chunk[containerChunks.size()]));
         webpChunk.write(baos);
         return baos.toByteArray();
     }
@@ -191,10 +152,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] webPData;
         byte[] bgr = frameAlpha ? null : PixelConverter.bgrPixelsOrNull(frame);
         if (bgr != null) {
-            webPData = NativeWebP.encodeBgr(bgr, width, height, quality, lossless, true);
+            webPData = NativeBridge.encodeBgr(bgr, width, height, quality, lossless, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(frame, frameAlpha);
-            webPData = NativeWebP.encode(pixels, width, height, quality, lossless, this.alpha, true);
+            webPData = NativeBridge.encode(pixels, width, height, quality, lossless, this.alpha, true);
         }
 
         if (webPData == null || webPData.length == 0) {
@@ -210,7 +171,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
     }
 
     public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, int flags, float quality, boolean lossless) throws IOException {
-        byte[] webPData = NativeWebP.encode(pixels, width, height, quality, lossless, this.alpha, true);
+        byte[] webPData = NativeBridge.encode(pixels, width, height, quality, lossless, this.alpha, true);
         if (webPData == null || webPData.length == 0) {
             throw new IOException("Failed to encode frame " + index);
         }
@@ -227,10 +188,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] webPData;
         byte[] bgr = frameAlpha ? null : PixelConverter.bgrPixelsOrNull(frame);
         if (bgr != null) {
-            webPData = NativeWebP.encodeBgr(bgr, width, height, quality, lossless, true);
+            webPData = NativeBridge.encodeBgr(bgr, width, height, quality, lossless, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(frame, frameAlpha);
-            webPData = NativeWebP.encode(pixels, width, height, quality, lossless, this.alpha, true);
+            webPData = NativeBridge.encode(pixels, width, height, quality, lossless, this.alpha, true);
         }
 
         if (webPData == null || webPData.length == 0) {
@@ -256,7 +217,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
                 nonNull.add(c);
             }
         }
-        WebPChunk webp = new WebPChunk(nonNull.toArray(new Chunk[0]));
+        WebPChunk webp = new WebPChunk(nonNull.toArray(new Chunk[nonNull.size()]));
         webp.write(this.out);
         this.out.flush();
     }

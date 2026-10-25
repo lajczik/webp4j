@@ -1,7 +1,7 @@
 package xyz.lychee.webp4j.animation;
 
 import xyz.lychee.webp4j.gif.GifToWebPConfig;
-import xyz.lychee.webp4j.internal.NativeWebP;
+import xyz.lychee.webp4j.common.NativeBridge;
 import xyz.lychee.webp4j.internal.PixelConverter;
 import xyz.lychee.webp4j.utils.WebPEncoder;
 
@@ -48,7 +48,7 @@ public final class AnimatedWebPEncoder {
             config = new GifToWebPConfig();
         }
 
-        if (NativeWebP.isAvailable()) {
+        if (NativeBridge.isAvailable()) {
             try {
                 return encodeNative(frames, delays, config);
             } catch (Throwable ignored) {
@@ -139,7 +139,7 @@ public final class AnimatedWebPEncoder {
             framePixels[i] = PixelConverter.toArgbPixels(frame, true);
         }
 
-        byte[] result = NativeWebP.encodeAnimated(
+        byte[] result = NativeBridge.encodeAnimated(
                 framePixels,
                 delays,
                 width,

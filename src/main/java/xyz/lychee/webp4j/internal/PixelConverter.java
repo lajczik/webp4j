@@ -26,6 +26,12 @@ import java.awt.image.WritableRaster;
  */
 public final class PixelConverter {
 
+    private static final DirectColorModel COLOR_MODEL_ARGB =
+            new DirectColorModel(32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+
+    private static final DirectColorModel COLOR_MODEL_RGB =
+            new DirectColorModel(24, 0x00ff0000, 0x0000ff00, 0x000000ff);
+
     private PixelConverter() {
         throw new AssertionError("Cannot instantiate utility class.");
     }
@@ -75,9 +81,7 @@ public final class PixelConverter {
                     "Pixel array length " + pixels.length + " does not match " + width + "x" + height);
         }
 
-        DirectColorModel colorModel = hasAlpha
-                ? new DirectColorModel(32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000)
-                : new DirectColorModel(24, 0x00ff0000, 0x0000ff00, 0x000000ff);
+        DirectColorModel colorModel = hasAlpha ? COLOR_MODEL_ARGB : COLOR_MODEL_RGB;
         DataBufferInt dataBuffer = new DataBufferInt(pixels, pixels.length);
         WritableRaster raster = Raster.createPackedRaster(
                 dataBuffer, width, height, width, colorModel.getMasks(), null);

@@ -2,7 +2,10 @@ package xyz.lychee.webp4j.animation;
 
 import xyz.lychee.webp4j.model.FitMode;
 
-import java.awt.*;
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +20,8 @@ import java.util.List;
  * @author MrNanko
  */
 public final class FrameNormalizer {
+
+    private static final Color TRANSPARENT_COLOR = new Color(0, 0, 0, 0);
 
     private FrameNormalizer() {
         throw new AssertionError("Cannot instantiate utility class.");
@@ -35,7 +40,7 @@ public final class FrameNormalizer {
      * @throws IllegalArgumentException if frames is null/empty or contains invalid images
      */
     public static List<BufferedImage> normalize(List<BufferedImage> frames) {
-        return normalize(frames, null, null, FitMode.CONTAIN, false, new Color(0, 0, 0, 0));
+        return normalize(frames, null, null, FitMode.CONTAIN, false, TRANSPARENT_COLOR);
     }
 
     /**
@@ -62,7 +67,7 @@ public final class FrameNormalizer {
             throw new IllegalArgumentException("Frames list cannot be null or empty");
         }
         if (fitMode == null) fitMode = FitMode.CONTAIN;
-        if (background == null) background = new Color(0, 0, 0, 0);
+        if (background == null) background = TRANSPARENT_COLOR;
 
         // Calculate min dimensions if target size not specified
         int minW = Integer.MAX_VALUE;

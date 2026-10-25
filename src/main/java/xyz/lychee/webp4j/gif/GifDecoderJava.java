@@ -347,9 +347,8 @@ public final class GifDecoderJava {
                 int numImages = reader.getNumImages(true);
                 info.setFrameCount(numImages);
 
-                BufferedImage firstImage = reader.read(0);
-                info.setWidth(firstImage.getWidth());
-                info.setHeight(firstImage.getHeight());
+                info.setWidth(reader.getWidth(0));
+                info.setHeight(reader.getHeight(0));
 
                 IIOMetadata streamMetadata = reader.getStreamMetadata();
                 info.setLoopCount(extractLoopCount(streamMetadata));

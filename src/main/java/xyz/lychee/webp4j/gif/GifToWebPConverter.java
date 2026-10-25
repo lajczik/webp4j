@@ -1,16 +1,16 @@
 package xyz.lychee.webp4j.gif;
 
-import xyz.lychee.webp4j.internal.NativeWebP;
+import xyz.lychee.webp4j.common.NativeBridge;
 import xyz.lychee.webp4j.internal.PixelConverter;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.utils.WebPEncoder;
 
-import java.awt.*;
+import java.awt.AlphaComposite;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.function.Supplier;
 
 /**
  * Converter for transforming GIF images to WebP format.
@@ -50,7 +50,7 @@ public final class GifToWebPConverter {
 
         // Try native path first
         try {
-            boolean success = NativeWebP.getGifInfo(gifData, info);
+            boolean success = NativeBridge.getGifInfo(gifData, info);
             if (success) {
                 return info;
             }
@@ -104,19 +104,13 @@ public final class GifToWebPConverter {
         // Try native path first (giflib + JNI) for best performance
         byte[] result = null;
         try {
-            result = NativeWebP.encodeGifToWebP(
+            result = NativeBridge.encodeGifToWebP(
                     gifData,
                     config.getQuality(),
                     config.isLossless(),
                     config.getCompressionMethod(),
                     config.isExtractFirstFrameOnly(),
-                    config.getLoopCount() == -1 ? ((Supplier<Integer>) () -> {
-                        try {
-                            return getInfo(gifData).getLoopCount();
-                        } catch (Exception e) {
-                            return 0; // Default to infinite loop if unable to read GIF info
-                        }
-                    }).get() : config.getLoopCount(),
+                    config.getLoopCount(),
                     config.getKmin(),
                     config.getKmax(),
                     config.isMinimizeSize(),
@@ -201,7 +195,7 @@ public final class GifToWebPConverter {
                                             boolean multiThreaded) throws IOException {
         boolean hasAlpha = image.getColorModel().hasAlpha();
         int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-        byte[] result = NativeWebP.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless, hasAlpha, multiThreaded);
+        byte[] result = NativeBridge.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless, hasAlpha, multiThreaded);
         if (result == null || result.length == 0) {
             throw new IOException("Failed to encode single frame to WebP");
         }
@@ -251,6 +245,9 @@ public final class GifToWebPConverter {
 
         BufferedImage updatedPreviousFrame = previousFrame;
         if (frameIndex < gif.frames.size() - 1 && frame.disposeMethod == 3) {
+            if (updatedPreviousFrame == null) {
+                updatedPreviousFrame = new BufferedImage(gif.width, gif.height, BufferedImage.TYPE_INT_ARGB);
+            }
             Graphics2D g2d = updatedPreviousFrame.createGraphics();
             try {
                 g2d.drawImage(canvas, 0, 0, null);
