@@ -1,6 +1,6 @@
 package xyz.lychee.webp4j.ffm;
 
-import xyz.lychee.webp4j.common.NativeLibraryLoader;
+import xyz.lychee.webp4j.jni.NativeLibraryLoader;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
@@ -37,6 +37,9 @@ public final class FFMWebP {
     private static final MethodHandle MH_DECODE_ANIMATED;
     private static final MethodHandle MH_GET_GIF_INFO;
     private static final MethodHandle MH_ENCODE_GIF;
+    private static final MethodHandle MH_ANIM_DEC_NEW;
+    private static final MethodHandle MH_ANIM_DEC_GET_NEXT;
+    private static final MethodHandle MH_ANIM_DEC_DELETE;
 
     private FFMWebP() {
         throw new AssertionError("Cannot instantiate utility class.");
@@ -310,57 +313,132 @@ public final class FFMWebP {
     }
 
     public static boolean decodeAnimated(byte[] webPData, AnimatedWebPData result) {
-        if (webPData == null || result == null || MH_DECODE_ANIMATED == null) return false;
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment inSeg = arena.allocateFrom(ValueLayout.JAVA_BYTE, webPData);
-            MemorySegment cwPtr = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment chPtr = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment loopPtr = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment bgPtr = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment fcPtr = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment outPixelsPtr = arena.allocate(ValueLayout.ADDRESS);
-            MemorySegment outTsPtr = arena.allocate(ValueLayout.ADDRESS);
+        if (webPData == null || webPData.length == 0 || result == null) return false;
 
-            int ok = (int) MH_DECODE_ANIMATED.invokeExact(
-                    inSeg, (long) webPData.length, cwPtr, chPtr, loopPtr, bgPtr, fcPtr, outPixelsPtr, outTsPtr
-            );
-            if (ok == 0) return false;
+        // Preferred: streaming animation decoder (zero redundant C buffer, minimal peak memory)
+        if (MH_ANIM_DEC_NEW != null && MH_ANIM_DEC_GET_NEXT != null && MH_ANIM_DEC_DELETE != null) {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment inSeg = arena.allocateFrom(ValueLayout.JAVA_BYTE, webPData);
+                MemorySegment cwPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment chPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment loopPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment bgPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment fcPtr = arena.allocate(ValueLayout.JAVA_INT);
 
-            int cw = cwPtr.get(ValueLayout.JAVA_INT, 0);
-            int ch = chPtr.get(ValueLayout.JAVA_INT, 0);
-            int loop = loopPtr.get(ValueLayout.JAVA_INT, 0);
-            int bg = bgPtr.get(ValueLayout.JAVA_INT, 0);
-            int fc = fcPtr.get(ValueLayout.JAVA_INT, 0);
+                MemorySegment dec = (MemorySegment) MH_ANIM_DEC_NEW.invokeExact(
+                        inSeg, (long) webPData.length, cwPtr, chPtr, loopPtr, bgPtr, fcPtr
+                );
+                if (dec.address() == 0L) {
+                    return false;
+                }
 
-            MemorySegment allPixelsSeg = outPixelsPtr.get(ValueLayout.ADDRESS, 0).reinterpret((long) fc * cw * ch * 4L);
-            MemorySegment tsSeg = outTsPtr.get(ValueLayout.ADDRESS, 0).reinterpret((long) fc * 4L);
+                try {
+                    int cw = cwPtr.get(ValueLayout.JAVA_INT, 0);
+                    int ch = chPtr.get(ValueLayout.JAVA_INT, 0);
+                    int loop = loopPtr.get(ValueLayout.JAVA_INT, 0);
+                    int bg = bgPtr.get(ValueLayout.JAVA_INT, 0);
+                    int fc = fcPtr.get(ValueLayout.JAVA_INT, 0);
+                    if (fc <= 0 || cw <= 0 || ch <= 0) {
+                        return false;
+                    }
 
-            int framePixels = cw * ch;
-            int[][] frames = new int[fc][framePixels];
-            for (int i = 0; i < fc; i++) {
-                MemorySegment slice = allPixelsSeg.asSlice((long) i * framePixels * 4L, (long) framePixels * 4L);
-                MemorySegment.copy(slice, ValueLayout.JAVA_INT, 0, frames[i], 0, framePixels);
+                    int framePixels = cw * ch;
+                    long frameBytes = (long) framePixels * 4L;
+                    MemorySegment frameBuf = arena.allocate(frameBytes);
+                    MemorySegment tsPtr = arena.allocate(ValueLayout.JAVA_INT);
+
+                    int[][] frames = new int[fc][framePixels];
+                    int[] timestamps = new int[fc];
+
+                    for (int i = 0; i < fc; i++) {
+                        int ok = (int) MH_ANIM_DEC_GET_NEXT.invokeExact(dec, frameBuf, frameBytes, tsPtr);
+                        if (ok == 0) {
+                            return false;
+                        }
+                        MemorySegment.copy(frameBuf, ValueLayout.JAVA_INT, 0, frames[i], 0, framePixels);
+                        timestamps[i] = tsPtr.get(ValueLayout.JAVA_INT, 0);
+                    }
+
+                    result.setCanvasWidth(cw);
+                    result.setCanvasHeight(ch);
+                    result.setLoopCount(loop);
+                    result.setBgcolor(bg);
+                    result.setFrameCount(fc);
+                    result.setFramePixels(frames);
+                    result.setTimestamps(timestamps);
+                    return true;
+                } finally {
+                    MH_ANIM_DEC_DELETE.invokeExact(dec);
+                }
+            } catch (Throwable t) {
+                return false;
             }
-
-            int[] timestamps = new int[fc];
-            MemorySegment.copy(tsSeg, ValueLayout.JAVA_INT, 0, timestamps, 0, fc);
-
-            if (MH_FREE != null) {
-                MH_FREE.invokeExact(allPixelsSeg);
-                MH_FREE.invokeExact(tsSeg);
-            }
-
-            result.setCanvasWidth(cw);
-            result.setCanvasHeight(ch);
-            result.setLoopCount(loop);
-            result.setBgcolor(bg);
-            result.setFrameCount(fc);
-            result.setFramePixels(frames);
-            result.setTimestamps(timestamps);
-            return true;
-        } catch (Throwable t) {
-            return false;
         }
+
+        // Fallback: batch decode animated with leak-proof cleanup
+        if (MH_DECODE_ANIMATED != null) {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment inSeg = arena.allocateFrom(ValueLayout.JAVA_BYTE, webPData);
+                MemorySegment cwPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment chPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment loopPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment bgPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment fcPtr = arena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment outPixelsPtr = arena.allocate(ValueLayout.ADDRESS);
+                MemorySegment outTsPtr = arena.allocate(ValueLayout.ADDRESS);
+
+                int ok = (int) MH_DECODE_ANIMATED.invokeExact(
+                        inSeg, (long) webPData.length, cwPtr, chPtr, loopPtr, bgPtr, fcPtr, outPixelsPtr, outTsPtr
+                );
+                if (ok == 0) return false;
+
+                MemorySegment rawPixelsSeg = outPixelsPtr.get(ValueLayout.ADDRESS, 0);
+                MemorySegment rawTsSeg = outTsPtr.get(ValueLayout.ADDRESS, 0);
+
+                try {
+                    int cw = cwPtr.get(ValueLayout.JAVA_INT, 0);
+                    int ch = chPtr.get(ValueLayout.JAVA_INT, 0);
+                    int loop = loopPtr.get(ValueLayout.JAVA_INT, 0);
+                    int bg = bgPtr.get(ValueLayout.JAVA_INT, 0);
+                    int fc = fcPtr.get(ValueLayout.JAVA_INT, 0);
+
+                    MemorySegment allPixelsSeg = rawPixelsSeg.reinterpret((long) fc * cw * ch * 4L);
+                    MemorySegment tsSeg = rawTsSeg.reinterpret((long) fc * 4L);
+
+                    int framePixels = cw * ch;
+                    int[][] frames = new int[fc][framePixels];
+                    for (int i = 0; i < fc; i++) {
+                        MemorySegment slice = allPixelsSeg.asSlice((long) i * framePixels * 4L, (long) framePixels * 4L);
+                        MemorySegment.copy(slice, ValueLayout.JAVA_INT, 0, frames[i], 0, framePixels);
+                    }
+
+                    int[] timestamps = new int[fc];
+                    MemorySegment.copy(tsSeg, ValueLayout.JAVA_INT, 0, timestamps, 0, fc);
+
+                    result.setCanvasWidth(cw);
+                    result.setCanvasHeight(ch);
+                    result.setLoopCount(loop);
+                    result.setBgcolor(bg);
+                    result.setFrameCount(fc);
+                    result.setFramePixels(frames);
+                    result.setTimestamps(timestamps);
+                    return true;
+                } finally {
+                    if (MH_FREE != null) {
+                        if (rawPixelsSeg.address() != 0L) {
+                            MH_FREE.invokeExact(rawPixelsSeg);
+                        }
+                        if (rawTsSeg.address() != 0L) {
+                            MH_FREE.invokeExact(rawTsSeg);
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     public static boolean getGifInfo(byte[] gifData, AnimationInfo info) {
@@ -448,6 +526,9 @@ public final class FFMWebP {
         MethodHandle mhDecodeAnimated = null;
         MethodHandle mhGetGifInfo = null;
         MethodHandle mhEncodeGif = null;
+        MethodHandle mhAnimDecNew = null;
+        MethodHandle mhAnimDecGetNext = null;
+        MethodHandle mhAnimDecDelete = null;
 
         try {
             NativeLibraryLoader.loadLibrary();
@@ -571,6 +652,20 @@ public final class FFMWebP {
                             ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS))
                     .orElse(null);
 
+            // Streaming animation decoder lookup
+            mhAnimDecNew = findHandle(linker, lookup, "webp4j_ffm_anim_decoder_new",
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG,
+                            ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS))
+                    .orElse(null);
+
+            mhAnimDecGetNext = findHandle(linker, lookup, "webp4j_ffm_anim_decoder_get_next",
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS))
+                    .orElse(null);
+
+            mhAnimDecDelete = findHandle(linker, lookup, "webp4j_ffm_anim_decoder_delete",
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS))
+                    .orElse(null);
+
             // Encode GIF lookup
             mhEncodeGif = findHandle(linker, lookup, "webp4j_ffm_encode_gif",
                     FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG,
@@ -604,5 +699,8 @@ public final class FFMWebP {
         MH_DECODE_ANIMATED = mhDecodeAnimated;
         MH_GET_GIF_INFO = mhGetGifInfo;
         MH_ENCODE_GIF = mhEncodeGif;
+        MH_ANIM_DEC_NEW = mhAnimDecNew;
+        MH_ANIM_DEC_GET_NEXT = mhAnimDecGetNext;
+        MH_ANIM_DEC_DELETE = mhAnimDecDelete;
     }
 }

@@ -57,4 +57,46 @@ public class FFMWebPTest {
             assertFalse(features.isHasAnimation());
         }
     }
+
+    @Test
+    public void testDecodeAnimatedWebP() throws Exception {
+        int width = 100;
+        int height = 100;
+        int frameCount = 3;
+        java.util.List<java.awt.image.BufferedImage> frames = new java.util.ArrayList<>();
+        int[] delays = new int[frameCount];
+
+        java.awt.Color[] colors = {java.awt.Color.RED, java.awt.Color.GREEN, java.awt.Color.BLUE};
+        for (int i = 0; i < frameCount; i++) {
+            java.awt.image.BufferedImage frame = new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g2d = frame.createGraphics();
+            g2d.setColor(colors[i]);
+            g2d.fillRect(0, 0, width, height);
+            g2d.dispose();
+            frames.add(frame);
+            delays[i] = 100;
+        }
+
+        byte[] webPData = WebPCodec.createAnimatedWebP(frames, delays, null);
+        assertNotNull(webPData);
+        assertTrue(webPData.length > 0);
+
+        xyz.lychee.webp4j.model.AnimatedWebPData result = new xyz.lychee.webp4j.model.AnimatedWebPData();
+        boolean ok = NativeWebP.decodeAnimated(webPData, result);
+        assertTrue(ok, "NativeWebP.decodeAnimated should succeed");
+        assertEquals(width, result.getCanvasWidth());
+        assertEquals(height, result.getCanvasHeight());
+        assertEquals(frameCount, result.getFrameCount());
+        assertNotNull(result.getFramePixels());
+        assertEquals(frameCount, result.getFramePixels().length);
+        assertEquals(width * height, result.getFramePixels()[0].length);
+        assertNotNull(result.getTimestamps());
+        assertEquals(frameCount, result.getTimestamps().length);
+
+        xyz.lychee.webp4j.model.AnimatedWebPData highLevel = WebPCodec.decodeAnimatedWebP(webPData);
+        assertNotNull(highLevel);
+        assertEquals(frameCount, highLevel.getFrames().size());
+        assertEquals(width, highLevel.getFrames().get(0).getImage().getWidth());
+        assertEquals(height, highLevel.getFrames().get(0).getImage().getHeight());
+    }
 }

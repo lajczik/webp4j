@@ -959,6 +959,64 @@ WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_animated(
     return 0;
 }
 
+/* ===========================================================================
+ * Animated WebP Decoder - Streaming API (Zero intermediate C buffer)
+ * =========================================================================== */
+
+WEBP4J_FFM_EXPORT void* webp4j_ffm_anim_decoder_new(
+    const uint8_t* webp_bytes, size_t data_size,
+    int32_t* canvas_width, int32_t* canvas_height,
+    int32_t* loop_count, int32_t* bgcolor, int32_t* frame_count) {
+    if (webp_bytes == NULL || data_size == 0) return NULL;
+
+    WebPData webp_data;
+    webp_data.bytes = webp_bytes;
+    webp_data.size = data_size;
+
+    WebPAnimDecoderOptions dec_options;
+    if (!WebPAnimDecoderOptionsInit(&dec_options)) return NULL;
+    dec_options.color_mode = MODE_BGRA;
+
+    WebPAnimDecoder* dec = WebPAnimDecoderNew(&webp_data, &dec_options);
+    if (dec == NULL) return NULL;
+
+    WebPAnimInfo anim_info;
+    if (!WebPAnimDecoderGetInfo(dec, &anim_info)) {
+        WebPAnimDecoderDelete(dec);
+        return NULL;
+    }
+
+    if (canvas_width) *canvas_width = (int32_t)anim_info.canvas_width;
+    if (canvas_height) *canvas_height = (int32_t)anim_info.canvas_height;
+    if (loop_count) *loop_count = (int32_t)anim_info.loop_count;
+    if (bgcolor) *bgcolor = (int32_t)anim_info.bgcolor;
+    if (frame_count) *frame_count = (int32_t)anim_info.frame_count;
+
+    return (void*)dec;
+}
+
+WEBP4J_FFM_EXPORT int32_t webp4j_ffm_anim_decoder_get_next(
+    void* dec_ptr, uint8_t* out_frame, size_t frame_bytes, int32_t* out_timestamp) {
+    if (dec_ptr == NULL || out_frame == NULL) return 0;
+    WebPAnimDecoder* dec = (WebPAnimDecoder*)dec_ptr;
+
+    if (!WebPAnimDecoderHasMoreFrames(dec)) return 0;
+
+    uint8_t* buf = NULL;
+    int ts = 0;
+    if (!WebPAnimDecoderGetNext(dec, &buf, &ts)) return 0;
+
+    memcpy(out_frame, buf, frame_bytes);
+    if (out_timestamp) *out_timestamp = (int32_t)ts;
+    return 1;
+}
+
+WEBP4J_FFM_EXPORT void webp4j_ffm_anim_decoder_delete(void* dec_ptr) {
+    if (dec_ptr != NULL) {
+        WebPAnimDecoderDelete((WebPAnimDecoder*)dec_ptr);
+    }
+}
+
 WEBP4J_FFM_EXPORT void webp4j_ffm_free_animated(void* ptr) {
     if (ptr != NULL) {
         WebPData webp_data;
