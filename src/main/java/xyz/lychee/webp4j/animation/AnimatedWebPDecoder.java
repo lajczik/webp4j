@@ -1,7 +1,7 @@
 package xyz.lychee.webp4j.animation;
 
 import xyz.lychee.webp4j.chunks.VP8XChunk;
-import xyz.lychee.webp4j.common.NativeBridge;
+import xyz.lychee.webp4j.jni.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimatedWebPFrame;
@@ -99,7 +99,7 @@ public final class AnimatedWebPDecoder {
         AnimatedWebPData result = new AnimatedWebPData();
 
         // Decode using native WebPAnimDecoder
-        boolean success = NativeBridge.decodeAnimated(webPData, result);
+        boolean success = NativeWebP.decodeAnimated(webPData, result);
         if (!success) {
             throw new IOException("Failed to decode animated WebP image.");
         }

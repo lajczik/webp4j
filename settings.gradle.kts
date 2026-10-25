@@ -1,5 +1,4 @@
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
 rootProject.name = "webp4j"
-
-include("native:common")
-include("native:jni")
-include("native:ffm")

@@ -19,7 +19,9 @@
 /dist/
 /nbdist/
 /.nb-gradle/
+### Output directories ###
 build/
+target/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -31,9 +33,9 @@ build/
 
 ### Native Libraries ###
 # Ignore compiled native libraries (they will be built by CI/CD)
-native/jni/src/main/resources/native/*.dll
-native/jni/src/main/resources/native/*.so
-native/jni/src/main/resources/native/*.dylib
+src/main/resources/native/*.dll
+src/main/resources/native/*.so
+src/main/resources/native/*.dylib
 
 .gradle/
 

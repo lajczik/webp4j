@@ -1,6 +1,6 @@
 package xyz.lychee.webp4j.gif;
 
-import xyz.lychee.webp4j.common.NativeBridge;
+import xyz.lychee.webp4j.jni.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.utils.WebPEncoder;
@@ -50,7 +50,7 @@ public final class GifToWebPConverter {
 
         // Try native path first
         try {
-            boolean success = NativeBridge.getGifInfo(gifData, info);
+            boolean success = NativeWebP.getGifInfo(gifData, info);
             if (success) {
                 return info;
             }
@@ -104,7 +104,7 @@ public final class GifToWebPConverter {
         // Try native path first (giflib + JNI) for best performance
         byte[] result = null;
         try {
-            result = NativeBridge.encodeGifToWebP(
+            result = NativeWebP.encodeGifToWebP(
                     gifData,
                     config.getQuality(),
                     config.isLossless(),
@@ -195,7 +195,7 @@ public final class GifToWebPConverter {
                                             boolean multiThreaded) throws IOException {
         boolean hasAlpha = image.getColorModel().hasAlpha();
         int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-        byte[] result = NativeBridge.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless, hasAlpha, multiThreaded);
+        byte[] result = NativeWebP.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless, hasAlpha, multiThreaded);
         if (result == null || result.length == 0) {
             throw new IOException("Failed to encode single frame to WebP");
         }

@@ -19,40 +19,49 @@ java {
 }
 
 dependencies {
-    api(project(":native:common"))
-    api(project(":native:jni"))
-
     compileOnly("org.projectlombok:lombok:1.18.48")
     annotationProcessor("org.projectlombok:lombok:1.18.48")
 
-    testImplementation(project(":native:ffm"))
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-}
-
-configurations.matching { it.name.startsWith("test") && it.isCanBeResolved }.configureEach {
-    attributes {
-        attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 22)
-    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
 }
 
-tasks.named<JavaCompile>("compileJava") {
+val compileJava = tasks.named<JavaCompile>("compileJava") {
     options.release.set(8)
 }
 
+val compileJava22 = tasks.register<JavaCompile>("compileJava22") {
+    dependsOn(compileJava)
+    source = fileTree("src/main/java22")
+    destinationDirectory.set(layout.buildDirectory.dir("classes/java22"))
+    classpath = compileJava.get().outputs.files
+    options.release.set(22)
+}
+
 tasks.named<Jar>("jar") {
+    dependsOn(compileJava22)
     archiveBaseName.set("webp4j")
     manifest {
         attributes(
+            "Multi-Release" to "true",
             "Automatic-Module-Name" to project.group.toString(),
             "Implementation-Title" to "webp4j",
             "Implementation-Version" to project.version
         )
+    }
+    into("META-INF/versions/22") {
+        from(compileJava22.map { it.destinationDirectory })
+    }
+}
+
+tasks.named<Jar>("sourcesJar") {
+    from("src/main/java22") {
+        into("META-INF/versions/22")
     }
 }
 
@@ -67,6 +76,8 @@ tasks.withType<Javadoc>().configureEach {
 }
 
 tasks.named<Test>("test") {
+    dependsOn(compileJava22)
+    classpath = files(compileJava22.map { it.destinationDirectory }) + classpath
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     useJUnitPlatform()
 }

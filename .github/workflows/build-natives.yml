@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  JAVA_VERSION: '21'
+  JAVA_VERSION: '22'
 
 jobs:
   # ============================================
@@ -60,7 +60,7 @@ jobs:
       uses: actions/upload-artifact@v5
       with:
         name: webp4j-windows-${{ matrix.arch }}
-        path: native/jni/src/main/resources/native/webp4j-windows-${{ matrix.arch }}.dll
+        path: src/main/resources/native/webp4j-windows-${{ matrix.arch }}.dll
         retention-days: 7
 
   # ============================================
@@ -101,7 +101,7 @@ jobs:
       uses: actions/upload-artifact@v5
       with:
         name: webp4j-mac-${{ matrix.arch }}
-        path: native/jni/src/main/resources/native/libwebp4j-mac-${{ matrix.arch }}.dylib
+        path: src/main/resources/native/libwebp4j-mac-${{ matrix.arch }}.dylib
         retention-days: 7
 
   # ============================================
@@ -116,10 +116,10 @@ jobs:
         include:
           - runner: ubuntu-22.04
             arch: x64
-            artifact-path: native/jni/src/main/resources/native/libwebp4j-linux-x64.so
+            artifact-path: src/main/resources/native/libwebp4j-linux-x64.so
           - runner: ubuntu-22.04-arm
             arch: aarch64
-            artifact-path: native/jni/src/main/resources/native/libwebp4j-linux-aarch64.so
+            artifact-path: src/main/resources/native/libwebp4j-linux-aarch64.so
     steps:
     - name: Checkout code
       uses: actions/checkout@v5

@@ -1,7 +1,7 @@
 package xyz.lychee.webp4j.utils;
 
 import xyz.lychee.webp4j.chunks.*;
-import xyz.lychee.webp4j.common.NativeBridge;
+import xyz.lychee.webp4j.jni.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import lombok.Getter;
 
@@ -42,7 +42,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
     }
 
     public Chunk[] getChunks() {
-        return chunkList.toArray(new Chunk[chunkList.size()]);
+        return chunkList.toArray(new Chunk[0]);
     }
 
     public static void encode(BufferedImage image, float quality, OutputStream out) throws IOException {
@@ -53,10 +53,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] bgr = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(image);
         byte[] byteBuf;
         if (bgr != null) {
-            byteBuf = NativeBridge.encodeBgr(bgr, image.getWidth(), image.getHeight(), quality, quality >= 100, true);
+            byteBuf = NativeWebP.encodeBgr(bgr, image.getWidth(), image.getHeight(), quality, quality >= 100, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-            byteBuf = NativeBridge.encode(pixels, image.getWidth(), image.getHeight(), quality, quality >= 100, hasAlpha, true);
+            byteBuf = NativeWebP.encode(pixels, image.getWidth(), image.getHeight(), quality, quality >= 100, hasAlpha, true);
         }
 
         if (byteBuf == null || byteBuf.length == 0) {
@@ -91,10 +91,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] bitstream;
         byte[] bgr = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(image);
         if (bgr != null) {
-            bitstream = NativeBridge.encodeBgr(bgr, width, height, quality, lossless, true);
+            bitstream = NativeWebP.encodeBgr(bgr, width, height, quality, lossless, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-            bitstream = NativeBridge.encode(pixels, width, height, quality, lossless, hasAlpha, true);
+            bitstream = NativeWebP.encode(pixels, width, height, quality, lossless, hasAlpha, true);
         }
 
         if (bitstream == null || bitstream.length == 0) {
@@ -152,10 +152,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] webPData;
         byte[] bgr = frameAlpha ? null : PixelConverter.bgrPixelsOrNull(frame);
         if (bgr != null) {
-            webPData = NativeBridge.encodeBgr(bgr, width, height, quality, lossless, true);
+            webPData = NativeWebP.encodeBgr(bgr, width, height, quality, lossless, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(frame, frameAlpha);
-            webPData = NativeBridge.encode(pixels, width, height, quality, lossless, this.alpha, true);
+            webPData = NativeWebP.encode(pixels, width, height, quality, lossless, this.alpha, true);
         }
 
         if (webPData == null || webPData.length == 0) {
@@ -171,7 +171,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
     }
 
     public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, int flags, float quality, boolean lossless) throws IOException {
-        byte[] webPData = NativeBridge.encode(pixels, width, height, quality, lossless, this.alpha, true);
+        byte[] webPData = NativeWebP.encode(pixels, width, height, quality, lossless, this.alpha, true);
         if (webPData == null || webPData.length == 0) {
             throw new IOException("Failed to encode frame " + index);
         }
@@ -188,10 +188,10 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         byte[] webPData;
         byte[] bgr = frameAlpha ? null : PixelConverter.bgrPixelsOrNull(frame);
         if (bgr != null) {
-            webPData = NativeBridge.encodeBgr(bgr, width, height, quality, lossless, true);
+            webPData = NativeWebP.encodeBgr(bgr, width, height, quality, lossless, true);
         } else {
             int[] pixels = PixelConverter.toArgbPixels(frame, frameAlpha);
-            webPData = NativeBridge.encode(pixels, width, height, quality, lossless, this.alpha, true);
+            webPData = NativeWebP.encode(pixels, width, height, quality, lossless, this.alpha, true);
         }
 
         if (webPData == null || webPData.length == 0) {

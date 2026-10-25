@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.common;
+package xyz.lychee.webp4j.jni;
 
 import xyz.lychee.webp4j.exception.NativeLibraryNotFoundException;
 
