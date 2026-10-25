@@ -60,7 +60,7 @@ jobs:
       uses: actions/upload-artifact@v5
       with:
         name: webp4j-windows-${{ matrix.arch }}
-        path: src/main/resources/native/webp4j-windows-${{ matrix.arch }}.dll
+        path: native/jni/src/main/resources/native/webp4j-windows-${{ matrix.arch }}.dll
         retention-days: 7
 
   # ============================================
@@ -101,7 +101,7 @@ jobs:
       uses: actions/upload-artifact@v5
       with:
         name: webp4j-mac-${{ matrix.arch }}
-        path: src/main/resources/native/libwebp4j-mac-${{ matrix.arch }}.dylib
+        path: native/jni/src/main/resources/native/libwebp4j-mac-${{ matrix.arch }}.dylib
         retention-days: 7
 
   # ============================================
@@ -116,10 +116,10 @@ jobs:
         include:
           - runner: ubuntu-22.04
             arch: x64
-            artifact-path: src/main/resources/native/libwebp4j-linux-x64.so
-          - runner: self-hosted
+            artifact-path: native/jni/src/main/resources/native/libwebp4j-linux-x64.so
+          - runner: ubuntu-24.04-arm
             arch: aarch64
-            artifact-path: src/main/resources/native/libwebp4j-linux-aarch64.so
+            artifact-path: native/jni/src/main/resources/native/libwebp4j-linux-aarch64.so
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
@@ -134,8 +134,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake
+        sudo apt-get update -q
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential cmake
 
     - name: Build
       run: |

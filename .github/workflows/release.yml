@@ -47,11 +47,11 @@ jobs:
       uses: actions/download-artifact@v5
       with:
         name: webp4j-all-platforms
-        path: src/main/resources/native
+        path: native/jni/src/main/resources/native
 
     - name: Display native libraries
       run: |
-        echo "Native files:" && ls -lh src/main/resources/native || true
+        echo "Native files:" && ls -lh native/jni/src/main/resources/native || true
 
     - name: Build and package JAR
       run: |
@@ -97,11 +97,11 @@ jobs:
       uses: actions/download-artifact@v5
       with:
         name: webp4j-all-platforms
-        path: src/main/resources/native
+        path: native/jni/src/main/resources/native
 
     - name: Display native libraries
       run: |
-        echo "Native files:" && ls -lh src/main/resources/native || true
+        echo "Native files:" && ls -lh native/jni/src/main/resources/native || true
 
     - name: Build JAR with all native libraries
       run: |
