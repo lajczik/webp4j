@@ -66,14 +66,14 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
 <dependency>
     <groupId>xyz.lychee.webp4j</groupId>
     <artifactId>webp4j</artifactId>
-    <version>2.5.0</version>
+    <version>2.6.0</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'xyz.lychee.webp4j:webp4j:2.5.0'
+implementation 'xyz.lychee.webp4j:webp4j:2.6.0'
 ```
 
 ### Supported Environments

@@ -15,7 +15,7 @@ import java.util.Locale;
 public class WebPImageWriterSpi extends ImageWriterSpi {
 
     private static final String VENDOR_NAME = "xyz.lychee";
-    private static final String VERSION = "2.5.0";
+    private static final String VERSION = "2.6.0";
     private static final String[] NAMES = {"webp", "WEBP", "WebP"};
     private static final String[] SUFFIXES = {"webp"};
     private static final String[] MIME_TYPES = {"image/webp", "image/x-webp"};
