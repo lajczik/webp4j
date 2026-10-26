@@ -1,7 +1,5 @@
 package xyz.lychee.webp4j.natives;
 
-import xyz.lychee.webp4j.NativeLibraryNotFoundException;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -40,7 +38,7 @@ public class NativeLibraryLoader {
         }
 
         if (in == null) {
-            throw new NativeLibraryNotFoundException(
+            throw new RuntimeException(
                     String.format("Native library not found: %s%n" +
                                     "OS: %s, Architecture: %s%n" +
                                     "Expected path: %s%n" +
@@ -73,7 +71,7 @@ public class NativeLibraryLoader {
             loadedLibraryFile = tempLibraryFile;
 
         } catch (IOException e) {
-            throw new NativeLibraryNotFoundException("Could not load native WebP library", e);
+            throw new RuntimeException("Could not load native WebP library", e);
         }
     }
 

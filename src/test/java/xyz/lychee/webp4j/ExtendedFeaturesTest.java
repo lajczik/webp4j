@@ -12,6 +12,8 @@ import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimatedWebPFrame;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
+import xyz.lychee.webp4j.model.WebPContainerFlag;
+import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.utils.ImageHelper;
 import xyz.lychee.webp4j.utils.Util;
 
@@ -220,5 +222,43 @@ public class ExtendedFeaturesTest {
             assertTrue(outWebP.exists());
             assertTrue(outWebP.length() > 0);
         }
+    }
+
+    @Test
+    void testWebPFlagsEnumsAndEncoderUsage() throws IOException {
+        // WebPFrameFlag masks & combinations
+        assertEquals(0, WebPFrameFlag.NO_DISPOSE.getMask());
+        assertEquals(1, WebPFrameFlag.DISPOSE_TO_BACKGROUND.getMask());
+        assertEquals(0, WebPFrameFlag.ALPHA_BLENDING.getMask());
+        assertEquals(2, WebPFrameFlag.NO_BLEND.getMask());
+
+        int combined = WebPFrameFlag.toMask(WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
+        assertEquals(3, combined);
+        assertTrue(WebPFrameFlag.hasFlag(combined, WebPFrameFlag.NO_BLEND));
+        assertTrue(WebPFrameFlag.hasFlag(combined, WebPFrameFlag.DISPOSE_TO_BACKGROUND));
+        assertFalse(WebPFrameFlag.hasFlag(combined, WebPFrameFlag.ALPHA_BLENDING));
+        assertFalse(WebPFrameFlag.hasFlag(combined, WebPFrameFlag.NO_DISPOSE));
+
+        // AnimatedWebPEncoder with WebPFrameFlag
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 2, 20, 20)) {
+            BufferedImage f1 = createTestImage(20, 20, true);
+            BufferedImage f2 = createTestImage(20, 20, false);
+            encoder.setFrame(0, f1, 100, 80.0f, false, WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);
+            encoder.setFrame(1, f2, 150, 80.0f, true, WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
+        }
+        byte[] animBytes = baos.toByteArray();
+        assertTrue(animBytes.length > 0);
+
+        AnimationInfo info = AnimatedWebPDecoder.getAnimationInfo(animBytes);
+        assertEquals(2, info.getFrameCount());
+
+        // WebPContainerFlag
+        int containerMask = WebPContainerFlag.toMask(WebPContainerFlag.ANIMATION, WebPContainerFlag.ALPHA, WebPContainerFlag.EXIF);
+        assertTrue(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.ANIMATION));
+        assertTrue(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.ALPHA));
+        assertTrue(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.EXIF));
+        assertFalse(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.XMP));
+        assertFalse(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.ICC_PROFILE));
     }
 }

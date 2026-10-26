@@ -3,6 +3,7 @@ package xyz.lychee.webp4j.codec;
 import lombok.Getter;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.GifToWebPConfig;
+import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.utils.Util;
@@ -30,10 +31,14 @@ import java.util.List;
 @Getter
 public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
 
-    public static final int FLAG_NO_BLEND = 1 << 1;
-    public static final int FLAG_ALPHA_BLENDING = 0 << 1;
-    public static final int FLAG_NO_DISPOSE = 0 << 0;
-    public static final int FLAG_DISPOSE_TO_BACKGROUND = 1 << 0;
+    @Deprecated
+    public static final int FLAG_NO_BLEND = WebPFrameFlag.NO_BLEND.getMask();
+    @Deprecated
+    public static final int FLAG_ALPHA_BLENDING = WebPFrameFlag.ALPHA_BLENDING.getMask();
+    @Deprecated
+    public static final int FLAG_NO_DISPOSE = WebPFrameFlag.NO_DISPOSE.getMask();
+    @Deprecated
+    public static final int FLAG_DISPOSE_TO_BACKGROUND = WebPFrameFlag.DISPOSE_TO_BACKGROUND.getMask();
 
     private final OutputStream out;
     private final boolean alpha;
@@ -64,9 +69,17 @@ public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
     }
 
     public void setFrame(int index, BufferedImage frame, int duration, float quality, boolean lossless) throws IOException {
+        setFrame(index, frame, duration, quality, lossless, new WebPFrameFlag[0]);
+    }
+
+    public void setFrame(int index, BufferedImage frame, int duration, float quality, boolean lossless, WebPFrameFlag... flags) throws IOException {
         byte[] webPData = WebPEncoder.encode(frame, quality, lossless, true);
         Chunk[] subchunks = ChunkFactory.getChunks(webPData);
-        setChunkAt(index + 2, new ANMFChunk(0, 0, frame.getWidth(), frame.getHeight(), duration, 0, subchunks));
+        setChunkAt(index + 2, new ANMFChunk(0, 0, frame.getWidth(), frame.getHeight(), duration, WebPFrameFlag.toMask(flags), subchunks));
+    }
+
+    public void setFrame(int index, BufferedImage frame, int duration, float quality, WebPFrameFlag... flags) throws IOException {
+        setFrame(index, frame, duration, quality, false, flags);
     }
 
     public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, int flags, float quality) throws IOException {
@@ -83,10 +96,26 @@ public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
         setChunkAt(index + 2, new ANMFChunk(x, y, width, height, duration, flags, subchunks));
     }
 
+    public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, float quality, boolean lossless, WebPFrameFlag... flags) throws IOException {
+        setFrame(index, pixels, x, y, width, height, duration, WebPFrameFlag.toMask(flags), quality, lossless);
+    }
+
+    public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, float quality, WebPFrameFlag... flags) throws IOException {
+        setFrame(index, pixels, x, y, width, height, duration, WebPFrameFlag.toMask(flags), quality, false);
+    }
+
     public void addFrame(BufferedImage frame, int duration, float quality, boolean lossless) throws IOException {
+        addFrame(frame, duration, quality, lossless, new WebPFrameFlag[0]);
+    }
+
+    public void addFrame(BufferedImage frame, int duration, float quality, boolean lossless, WebPFrameFlag... flags) throws IOException {
         byte[] webPData = WebPEncoder.encode(frame, quality, lossless, true);
         Chunk[] subchunks = ChunkFactory.getChunks(webPData);
-        chunks.add(new ANMFChunk(0, 0, frame.getWidth(), frame.getHeight(), duration, 0, subchunks));
+        chunks.add(new ANMFChunk(0, 0, frame.getWidth(), frame.getHeight(), duration, WebPFrameFlag.toMask(flags), subchunks));
+    }
+
+    public void addFrame(BufferedImage frame, int duration, float quality, WebPFrameFlag... flags) throws IOException {
+        addFrame(frame, duration, quality, false, flags);
     }
 
     public void setChunkAt(int index, Chunk chunk) {

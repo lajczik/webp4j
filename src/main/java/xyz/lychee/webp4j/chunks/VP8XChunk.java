@@ -1,21 +1,23 @@
 package xyz.lychee.webp4j.chunks;
 
+import xyz.lychee.webp4j.model.WebPContainerFlag;
+
 import java.io.IOException;
 import java.io.OutputStream;
 
 import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
 public class VP8XChunk extends Chunk {
-    public static final int ICCP_MASK = 1 << 5;
-    public static final int ALPH_MASK = 1 << 4;
-    public static final int EXIF_MASK = 1 << 3;
-    public static final int XMP_MASK = 1 << 2;
-    public static final int ANIM_MASK = 1 << 1;
-    public static final int FLAG_ICCP = 1 << 5;
-    public static final int FLAG_ALPH = 1 << 4;
-    public static final int FLAG_EXIF = 1 << 3;
-    public static final int FLAG_XMP = 1 << 2;
-    public static final int FLAG_ANIM = 1 << 1;
+    public static final int ICCP_MASK = WebPContainerFlag.ICC_PROFILE.getMask();
+    public static final int ALPH_MASK = WebPContainerFlag.ALPHA.getMask();
+    public static final int EXIF_MASK = WebPContainerFlag.EXIF.getMask();
+    public static final int XMP_MASK = WebPContainerFlag.XMP.getMask();
+    public static final int ANIM_MASK = WebPContainerFlag.ANIMATION.getMask();
+    public static final int FLAG_ICCP = WebPContainerFlag.ICC_PROFILE.getMask();
+    public static final int FLAG_ALPH = WebPContainerFlag.ALPHA.getMask();
+    public static final int FLAG_EXIF = WebPContainerFlag.EXIF.getMask();
+    public static final int FLAG_XMP = WebPContainerFlag.XMP.getMask();
+    public static final int FLAG_ANIM = WebPContainerFlag.ANIMATION.getMask();
 
     public static final byte[] VP8X = new byte[]{'V', 'P', '8', 'X'};
     private final int canvasWidth;
@@ -27,6 +29,10 @@ public class VP8XChunk extends Chunk {
         this.canvasWidth = checkUInt24(canvasWidth);
         this.canvasHeight = checkUInt24(canvasHeight);
         this.rsvILEXARReserved = flags;
+    }
+
+    public VP8XChunk(int canvasWidth, int canvasHeight, WebPContainerFlag... flags) {
+        this(WebPContainerFlag.toMask(flags), canvasWidth, canvasHeight);
     }
 
     public int getCanvasWidth() {
@@ -59,6 +65,10 @@ public class VP8XChunk extends Chunk {
 
     public boolean hasANIMFlag() {
         return (rsvILEXARReserved & ANIM_MASK) != 0;
+    }
+
+    public boolean hasFlag(WebPContainerFlag flag) {
+        return WebPContainerFlag.hasFlag(rsvILEXARReserved, flag);
     }
 
     @Override
