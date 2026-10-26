@@ -44,7 +44,7 @@ public class NativeLibraryLoader {
         }
 
         if (in == null) {
-            throw new RuntimeException(
+            throw new UnsupportedOperationException(
                     String.format("Native library not found: %s%n" +
                                     "OS: %s, Architecture: %s%n" +
                                     "Expected path: %s%n" +
@@ -77,7 +77,7 @@ public class NativeLibraryLoader {
             loadedLibraryFile = tempLibraryFile;
 
         } catch (IOException e) {
-            throw new RuntimeException("Could not load native WebP library", e);
+            throw new UnsupportedOperationException("Could not load native WebP library", e);
         }
     }
 
