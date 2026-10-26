@@ -280,18 +280,19 @@ ImageIO.write(inputImage, "webp", new File("output.webp"));
 
 // 3. Customizing compression via WebPImageWriteParam
 ImageWriter writer = ImageIO.getImageWritersByFormatName("webp").next();
-try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("output_lossless.webp"))) {
+try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("output_custom.webp"))) {
     writer.setOutput(ios);
 
     WebPImageWriteParam param = (WebPImageWriteParam) writer.getDefaultWriteParam();
-    param.setLossless(true); // Toggle lossless VP8L compression
+    param.setQuality(85.0f);   // Custom quality (0.0 - 100.0) or param.setCompressionQuality(0.85f)
+    // param.setLossless(true); // Or toggle lossless VP8L compression
 
     writer.write(null, new javax.imageio.IIOImage(inputImage, null, null), param);
 } finally {
     writer.dispose();
 }
 
-// 4. Creating Animated WebP via ImageIO Sequence Writing
+// 4. Creating Animated WebP via ImageIO Sequence Writing (per-frame quality & delay)
 ImageWriter animWriter = ImageIO.getImageWritersByFormatName("webp").next();
 try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("animation.webp"))) {
     animWriter.setOutput(ios);
@@ -300,13 +301,15 @@ try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("animation
     WebPImageWriteParam param = (WebPImageWriteParam) animWriter.getDefaultWriteParam();
     param.setLoopCount(0); // 0 = infinite loop
 
-    // Frame 1: 100ms display delay
+    // Frame 1: 100ms display delay, quality 80
     param.setDelay(100);
+    param.setQuality(80.0f);
     param.setFrameFlags(WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);
     animWriter.writeToSequence(new javax.imageio.IIOImage(frame1, null, null), param);
 
-    // Frame 2: 150ms display delay
+    // Frame 2: 150ms display delay, quality 90 (or lossless)
     param.setDelay(150);
+    param.setQuality(90.0f);
     param.setFrameFlags(WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
     animWriter.writeToSequence(new javax.imageio.IIOImage(frame2, null, null), param);
 

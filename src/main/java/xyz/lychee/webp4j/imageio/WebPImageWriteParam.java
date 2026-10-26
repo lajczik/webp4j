@@ -54,6 +54,30 @@ public class WebPImageWriteParam extends ImageWriteParam {
     }
 
     /**
+     * Returns the WebP compression quality in the range [0.0, 100.0].
+     *
+     * @return Quality between 0.0 and 100.0
+     */
+    public float getQuality() {
+        return getCompressionQuality() * 100.0f;
+    }
+
+    /**
+     * Sets the WebP compression quality in the range [0.0, 100.0].
+     * Automatically sets compression mode to explicit and type to lossy.
+     *
+     * @param quality Quality between 0.0 and 100.0
+     */
+    public void setQuality(float quality) {
+        if (quality < 0.0f || quality > 100.0f) {
+            throw new IllegalArgumentException("Quality must be between 0.0 and 100.0: " + quality);
+        }
+        setCompressionMode(MODE_EXPLICIT);
+        setCompressionType(COMPRESSION_TYPE_LOSSY);
+        setCompressionQuality(quality / 100.0f);
+    }
+
+    /**
      * Returns the frame display delay in milliseconds for animation sequence writing.
      *
      * @return Delay in milliseconds (default: 100ms)

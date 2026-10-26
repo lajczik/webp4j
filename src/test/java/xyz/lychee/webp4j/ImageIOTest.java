@@ -196,15 +196,17 @@ class ImageIOTest {
             param.setLoopCount(3);
             param.setBackgroundColor(0xFF00FF00);
 
-            // Frame 0: 40x40, 150ms delay
+            // Frame 0: 40x40, 150ms delay, custom quality 60
             BufferedImage f1 = createTestImage(40, 40, false);
             param.setDelay(150);
+            param.setQuality(60.0f);
             param.setFrameFlags(WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);
             writer.writeToSequence(new IIOImage(f1, null, null), param);
 
-            // Frame 1: 40x40, 250ms delay
+            // Frame 1: 40x40, 250ms delay, custom quality 95
             BufferedImage f2 = createTestImage(40, 40, true);
             param.setDelay(250);
+            param.setQuality(95.0f);
             param.setFrameFlags(WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
             writer.writeToSequence(new IIOImage(f2, null, null), param);
 
@@ -259,5 +261,23 @@ class ImageIOTest {
         } finally {
             writer.dispose();
         }
+    }
+
+    @Test
+    void testWebPImageWriteParamQuality() {
+        WebPImageWriteParam param = new WebPImageWriteParam(null);
+        assertEquals(75.0f, param.getQuality(), 0.01f);
+        assertEquals(0.75f, param.getCompressionQuality(), 0.001f);
+
+        param.setQuality(92.5f);
+        assertEquals(92.5f, param.getQuality(), 0.01f);
+        assertEquals(0.925f, param.getCompressionQuality(), 0.001f);
+        assertFalse(param.isLossless());
+
+        param.setCompressionQuality(0.50f);
+        assertEquals(50.0f, param.getQuality(), 0.01f);
+
+        assertThrows(IllegalArgumentException.class, () -> param.setQuality(-1.0f));
+        assertThrows(IllegalArgumentException.class, () -> param.setQuality(100.1f));
     }
 }
