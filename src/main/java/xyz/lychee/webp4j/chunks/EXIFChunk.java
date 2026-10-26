@@ -1,5 +1,10 @@
 package xyz.lychee.webp4j.chunks;
 
+/**
+ * EXIF metadata chunk (EXIF).
+ *
+ * @author lajczik
+ */
 public class EXIFChunk extends RawDataChunk {
     static final byte[] EXIF = new byte[]{'E', 'X', 'I', 'F'};
 

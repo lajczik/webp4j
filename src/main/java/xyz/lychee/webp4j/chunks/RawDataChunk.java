@@ -7,6 +7,11 @@ import java.io.OutputStream;
 import java.util.Objects;
 
 @Getter
+/**
+ * Chunk that preserves its unparsed raw payload bytes.
+ *
+ * @author lajczik
+ */
 public class RawDataChunk extends Chunk {
     private final byte[] rawData;
 

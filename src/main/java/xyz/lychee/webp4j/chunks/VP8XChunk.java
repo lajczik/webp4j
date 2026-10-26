@@ -8,6 +8,11 @@ import java.util.EnumSet;
 
 import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
+/**
+ * Extended container chunk (VP8X) defining canvas dimensions and feature flags.
+ *
+ * @author lajczik
+ */
 public class VP8XChunk extends Chunk {
 
     public static final byte[] VP8X = new byte[]{'V', 'P', '8', 'X'};

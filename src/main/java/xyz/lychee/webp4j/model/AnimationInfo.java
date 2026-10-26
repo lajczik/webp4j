@@ -9,6 +9,9 @@ import java.util.Arrays;
  * Holds animation metadata extracted from WebP or GIF containers without decoding pixel buffers.
  * <p>
  * Instances of this class are populated by chunk inspection or native probing.
+ *
+ * @author MrNanko
+ * @author lajczik
  */
 @Getter
 @Setter

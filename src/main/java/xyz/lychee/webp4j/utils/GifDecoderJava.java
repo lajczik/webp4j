@@ -21,6 +21,9 @@ import java.util.List;
  * Java-based GIF decoder using ImageIO.
  * This is used as a fallback when native giflib is unavailable,
  * or for testing purposes.
+ *
+ * @author MrNanko
+ * @author lajczik
  */
 public final class GifDecoderJava {
 

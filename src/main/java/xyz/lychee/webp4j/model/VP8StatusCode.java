@@ -1,5 +1,11 @@
 package xyz.lychee.webp4j.model;
 
+/**
+ * Status codes returned by native libwebp operations.
+ *
+ * @author MrNanko
+ * @author lajczik
+ */
 public enum VP8StatusCode {
     VP8_STATUS_OK,
     VP8_STATUS_OUT_OF_MEMORY,

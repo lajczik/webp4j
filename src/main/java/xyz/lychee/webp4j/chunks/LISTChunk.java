@@ -9,6 +9,11 @@ import java.util.Collections;
 import java.util.List;
 
 @Getter
+/**
+ * Abstract chunk that contains ordered nested subchunks.
+ *
+ * @author lajczik
+ */
 public class LISTChunk extends Chunk {
     private final List<Chunk> subchunks;
 

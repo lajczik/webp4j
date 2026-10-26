@@ -23,6 +23,7 @@ import java.awt.image.WritableRaster;
  * image's backing array crosses the JNI boundary without any conversion copy.
  *
  * @author MrNanko
+ * @author lajczik
  */
 public final class PixelConverter {
 

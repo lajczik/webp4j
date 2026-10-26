@@ -6,6 +6,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 
+/**
+ * Loads native platform binaries from bundled jar resources.
+ *
+ * @author MrNanko
+ * @author lajczik
+ */
 public class NativeLibraryLoader {
 
     private static volatile File loadedLibraryFile;

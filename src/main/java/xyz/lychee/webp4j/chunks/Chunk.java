@@ -8,6 +8,11 @@ import java.io.OutputStream;
 
 import static xyz.lychee.webp4j.utils.Util.isOdd;
 
+/**
+ * Base abstract class representing a WebP RIFF chunk.
+ *
+ * @author lajczik
+ */
 @Getter
 public abstract class Chunk {
     private final byte[] fourCC;

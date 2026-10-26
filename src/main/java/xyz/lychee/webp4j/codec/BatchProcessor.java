@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * A caller-supplied executor is never shut down by this class.
  *
  * @author MrNanko
+ * @author lajczik
  * @since 2.4.0
  */
 public final class BatchProcessor {

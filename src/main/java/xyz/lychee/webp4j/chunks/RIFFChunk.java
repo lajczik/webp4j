@@ -5,6 +5,11 @@ import java.io.OutputStream;
 
 import static xyz.lychee.webp4j.utils.Util.writeFourCC;
 
+/**
+ * RIFF container chunk containing subchunks.
+ *
+ * @author lajczik
+ */
 public class RIFFChunk extends LISTChunk {
 
     static final byte[] RIFF = new byte[]{'R', 'I', 'F', 'F'};

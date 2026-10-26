@@ -22,6 +22,7 @@ import java.util.List;
  * Decoder for extracting individual frames and animation metadata from animated WebP images.
  *
  * @author MrNanko
+ * @author lajczik
  */
 public final class AnimatedWebPDecoder {
 

@@ -4,6 +4,12 @@ import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 
+/**
+ * Native WebP library binding interface.
+ *
+ * @author MrNanko
+ * @author lajczik
+ */
 public class NativeWebP {
 
     /**

@@ -27,6 +27,7 @@ import java.util.List;
  * Main facade class for WebP encoding, decoding, conversion, and inspection operations.
  *
  * @author MrNanko
+ * @author lajczik
  * @since 1.4.0
  */
 public final class WebPCodec {

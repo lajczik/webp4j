@@ -15,6 +15,9 @@ import java.util.List;
  * The raw frame data (packed ARGB pixel arrays and timestamps) are populated
  * by the native layer, and then converted to {@link AnimatedWebPFrame} objects
  * by the decoder.
+ *
+ * @author MrNanko
+ * @author lajczik
  */
 @Getter
 @Setter

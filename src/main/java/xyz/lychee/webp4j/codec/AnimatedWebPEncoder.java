@@ -28,6 +28,7 @@ import java.util.List;
  * composition using RIFF chunks (VP8X, ANIM, ANMF), delegating frame compression to libwebp.
  *
  * @author MrNanko
+ * @author lajczik
  */
 @Getter
 public class AnimatedWebPEncoder implements AutoCloseable, Flushable {

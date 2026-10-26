@@ -1,5 +1,10 @@
 package xyz.lychee.webp4j.chunks;
 
+/**
+ * Alpha bitstream chunk (ALPH) containing transparency data for lossy WebP images.
+ *
+ * @author lajczik
+ */
 public class ALPHChunk extends RawDataChunk {
     public static final int PREPROCESSING_MASK = 3 << 4;
     public static final int FILTERING_METHOD_MASK = 3 << 2;

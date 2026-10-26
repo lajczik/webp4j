@@ -5,7 +5,7 @@ import java.util.EnumSet;
 /**
  * Flags for configuring frame blending and disposal in animated WebP images (ANMF chunk).
  *
- * @author MrNanko
+ * @author lajczik
  */
 public enum WebPFrameFlag {
 

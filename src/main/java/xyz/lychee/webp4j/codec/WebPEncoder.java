@@ -20,7 +20,7 @@ import java.util.List;
 /**
  * Encoder for generating static WebP images.
  *
- * @author MrNanko
+ * @author lajczik
  */
 public final class WebPEncoder {
 

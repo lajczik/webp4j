@@ -8,6 +8,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Factory and parser for RIFF chunk structures in WebP files.
+ *
+ * @author lajczik
+ */
 public final class ChunkFactory {
 
     private static final Chunk[] EMPTY_CHUNK_ARRAY = new Chunk[0];

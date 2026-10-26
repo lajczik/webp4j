@@ -16,6 +16,9 @@ import java.util.List;
  * Represents WebP bitstream features.
  * This class is used by JNI code to return image metadata, and can also be
  * constructed via pure Java chunk parsing.
+ *
+ * @author MrNanko
+ * @author lajczik
  */
 @Getter
 @Setter

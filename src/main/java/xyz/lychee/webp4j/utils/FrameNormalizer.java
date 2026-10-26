@@ -18,6 +18,7 @@ import java.util.List;
  * onto a common canvas with configurable fit strategies.
  *
  * @author MrNanko
+ * @author lajczik
  */
 public final class FrameNormalizer {
 

@@ -8,6 +8,11 @@ import java.util.EnumSet;
 
 import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
+/**
+ * Animation frame chunk (ANMF) representing a single frame with offset, duration, and flags.
+ *
+ * @author lajczik
+ */
 public class ANMFChunk extends LISTChunk {
 
     public static final byte[] ANMF = new byte[]{'A', 'N', 'M', 'F'};

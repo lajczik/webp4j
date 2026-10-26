@@ -15,6 +15,11 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
 
+/**
+ * General bitstream and I/O utility methods for WebP chunk and data manipulation.
+ *
+ * @author lajczik
+ */
 public final class Util {
 
     public static final long UINT32_MAX = 4294967295L; // 2 ^ 32 - 1

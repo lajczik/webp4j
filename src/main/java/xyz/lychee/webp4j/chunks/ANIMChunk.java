@@ -7,6 +7,11 @@ import java.io.OutputStream;
 
 import static xyz.lychee.webp4j.utils.Util.checkUInt16;
 
+/**
+ * Animation global parameters chunk (ANIM) defining canvas background color and loop count.
+ *
+ * @author lajczik
+ */
 @Getter
 public class ANIMChunk extends Chunk {
     public static final byte[] ANIM = new byte[]{'A', 'N', 'I', 'M'};

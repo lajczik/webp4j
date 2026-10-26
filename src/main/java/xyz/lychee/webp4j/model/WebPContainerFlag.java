@@ -5,7 +5,7 @@ import java.util.EnumSet;
 /**
  * Extended container feature flags for WebP images (VP8X chunk).
  *
- * @author MrNanko
+ * @author lajczik
  */
 public enum WebPContainerFlag {
 

@@ -7,6 +7,7 @@ package xyz.lychee.webp4j.model;
  * onto a uniform canvas size, similar to CSS object-fit behavior.
  *
  * @author MrNanko
+ * @author lajczik
  * @since 2026/1/13 19:45
  */
 public enum FitMode {

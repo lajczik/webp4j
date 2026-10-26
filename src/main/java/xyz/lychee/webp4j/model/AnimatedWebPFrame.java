@@ -10,6 +10,9 @@ import java.awt.image.BufferedImage;
  * <p>
  * Each frame contains the fully composited image data, its cumulative
  * timestamp in milliseconds from animation start, and its individual display duration.
+ *
+ * @author MrNanko
+ * @author lajczik
  */
 @Getter
 @Setter

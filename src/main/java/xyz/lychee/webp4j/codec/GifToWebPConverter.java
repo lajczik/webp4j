@@ -29,6 +29,7 @@ import java.nio.file.Path;
  * </ul>
  *
  * @author MrNanko
+ * @author lajczik
  */
 public final class GifToWebPConverter {
 

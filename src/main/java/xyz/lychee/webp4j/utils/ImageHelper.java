@@ -11,6 +11,8 @@ import java.awt.image.*;
 
 /**
  * General image manipulation and transformation utilities for image preparation before encoding.
+ *
+ * @author lajczik
  */
 public final class ImageHelper {
 

@@ -27,7 +27,7 @@ import java.util.List;
 /**
  * Decoder for decoding static WebP images and extracting WebP container metadata.
  *
- * @author MrNanko
+ * @author lajczik
  */
 public final class WebPDecoder {
 

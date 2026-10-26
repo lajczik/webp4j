@@ -10,6 +10,9 @@ import lombok.Getter;
  * compression mode, and animation properties.
  * <p>
  * Based on Google's gif2webp tool options: https://developers.google.com/speed/webp/docs/gif2webp
+ *
+ * @author MrNanko
+ * @author lajczik
  */
 @Getter
 public class GifToWebPConfig {
