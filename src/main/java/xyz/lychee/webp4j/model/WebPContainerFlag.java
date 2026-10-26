@@ -1,5 +1,7 @@
 package xyz.lychee.webp4j.model;
 
+import java.util.EnumSet;
+
 /**
  * Extended container feature flags for WebP images (VP8X chunk).
  *
@@ -48,6 +50,32 @@ public enum WebPContainerFlag {
     }
 
     /**
+     * Checks if this container flag is set in the given bitmask.
+     *
+     * @param mask Bitmask to test
+     * @return true if this flag is set in the mask
+     */
+    public boolean isSet(int mask) {
+        return (mask & this.mask) == this.mask;
+    }
+
+    /**
+     * Extracts all container flags that are set in the given bitmask.
+     *
+     * @param mask Bitmask to extract flags from
+     * @return EnumSet containing all matching WebPContainerFlag instances
+     */
+    public static EnumSet<WebPContainerFlag> fromMask(int mask) {
+        EnumSet<WebPContainerFlag> set = EnumSet.noneOf(WebPContainerFlag.class);
+        for (WebPContainerFlag f : values()) {
+            if (f.isSet(mask)) {
+                set.add(f);
+            }
+        }
+        return set;
+    }
+
+    /**
      * Combines multiple container flags into a single bitmask integer.
      *
      * @param flags Varargs of WebPContainerFlag
@@ -93,9 +121,6 @@ public enum WebPContainerFlag {
      * @return true if flag is set
      */
     public static boolean hasFlag(int mask, WebPContainerFlag flag) {
-        if (flag == null) {
-            return false;
-        }
-        return (mask & flag.mask) == flag.mask;
+        return flag != null && flag.isSet(mask);
     }
 }

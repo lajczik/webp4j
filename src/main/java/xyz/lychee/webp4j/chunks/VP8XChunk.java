@@ -4,6 +4,7 @@ import xyz.lychee.webp4j.model.WebPContainerFlag;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.EnumSet;
 
 import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
@@ -37,28 +38,37 @@ public class VP8XChunk extends Chunk {
         return rsvILEXARReserved;
     }
 
+    /**
+     * Returns the set of active container flags for this VP8X chunk.
+     *
+     * @return EnumSet of active WebPContainerFlag instances
+     */
+    public EnumSet<WebPContainerFlag> getContainerFlags() {
+        return WebPContainerFlag.fromMask(rsvILEXARReserved);
+    }
+
     public boolean hasICCPFlag() {
-        return hasFlag(WebPContainerFlag.ICC_PROFILE);
+        return WebPContainerFlag.ICC_PROFILE.isSet(rsvILEXARReserved);
     }
 
     public boolean hasALPHFlag() {
-        return hasFlag(WebPContainerFlag.ALPHA);
+        return WebPContainerFlag.ALPHA.isSet(rsvILEXARReserved);
     }
 
     public boolean hasEXIFFlag() {
-        return hasFlag(WebPContainerFlag.EXIF);
+        return WebPContainerFlag.EXIF.isSet(rsvILEXARReserved);
     }
 
     public boolean hasXMPFlag() {
-        return hasFlag(WebPContainerFlag.XMP);
+        return WebPContainerFlag.XMP.isSet(rsvILEXARReserved);
     }
 
     public boolean hasANIMFlag() {
-        return hasFlag(WebPContainerFlag.ANIMATION);
+        return WebPContainerFlag.ANIMATION.isSet(rsvILEXARReserved);
     }
 
     public boolean hasFlag(WebPContainerFlag flag) {
-        return WebPContainerFlag.hasFlag(rsvILEXARReserved, flag);
+        return flag != null && flag.isSet(rsvILEXARReserved);
     }
 
     @Override

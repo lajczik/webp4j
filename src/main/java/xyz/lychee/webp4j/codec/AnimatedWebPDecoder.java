@@ -66,7 +66,7 @@ public final class AnimatedWebPDecoder {
                 int flags = Util.toInt32(webPData, payloadOffset);
                 info.setWidth(1 + Util.toUInt24(webPData, payloadOffset + 4));
                 info.setHeight(1 + Util.toUInt24(webPData, payloadOffset + 7));
-                info.setHasTransparency(WebPContainerFlag.hasFlag(flags, WebPContainerFlag.ALPHA));
+                info.setHasTransparency(WebPContainerFlag.ALPHA.isSet(flags));
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'I' && c3 == 'M' && payloadLen >= 6) {
                 info.setLoopCount(Util.toUInt16(webPData, payloadOffset + 4));
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'M' && c3 == 'F') {

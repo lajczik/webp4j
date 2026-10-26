@@ -1,5 +1,7 @@
 package xyz.lychee.webp4j.model;
 
+import java.util.EnumSet;
+
 /**
  * Flags for configuring frame blending and disposal in animated WebP images (ANMF chunk).
  *
@@ -40,6 +42,40 @@ public enum WebPFrameFlag {
      */
     public int getMask() {
         return mask;
+    }
+
+    /**
+     * Checks if this frame flag is active in the given bitmask.
+     *
+     * @param mask Bitmask to test
+     * @return true if this flag is active in the mask
+     */
+    public boolean isSet(int mask) {
+        if (this.mask == 0) {
+            if (this == NO_DISPOSE) {
+                return (mask & DISPOSE_TO_BACKGROUND.mask) == 0;
+            } else if (this == ALPHA_BLENDING) {
+                return (mask & NO_BLEND.mask) == 0;
+            }
+            return true;
+        }
+        return (mask & this.mask) == this.mask;
+    }
+
+    /**
+     * Extracts all frame flags that are active in the given bitmask.
+     *
+     * @param mask Bitmask to extract flags from
+     * @return EnumSet containing all matching WebPFrameFlag instances
+     */
+    public static EnumSet<WebPFrameFlag> fromMask(int mask) {
+        EnumSet<WebPFrameFlag> set = EnumSet.noneOf(WebPFrameFlag.class);
+        for (WebPFrameFlag f : values()) {
+            if (f.isSet(mask)) {
+                set.add(f);
+            }
+        }
+        return set;
     }
 
     /**
@@ -88,17 +124,6 @@ public enum WebPFrameFlag {
      * @return true if flag is active
      */
     public static boolean hasFlag(int mask, WebPFrameFlag flag) {
-        if (flag == null) {
-            return false;
-        }
-        if (flag.mask == 0) {
-            if (flag == NO_DISPOSE) {
-                return (mask & DISPOSE_TO_BACKGROUND.mask) == 0;
-            } else if (flag == ALPHA_BLENDING) {
-                return (mask & NO_BLEND.mask) == 0;
-            }
-            return true;
-        }
-        return (mask & flag.mask) == flag.mask;
+        return flag != null && flag.isSet(mask);
     }
 }

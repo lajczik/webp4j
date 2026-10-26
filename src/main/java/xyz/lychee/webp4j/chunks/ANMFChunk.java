@@ -4,6 +4,7 @@ import xyz.lychee.webp4j.model.WebPFrameFlag;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.EnumSet;
 
 import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
@@ -50,6 +51,15 @@ public class ANMFChunk extends LISTChunk {
         return reservedBD;
     }
 
+    /**
+     * Returns the set of active frame flags for this ANMF chunk.
+     *
+     * @return EnumSet of active WebPFrameFlag instances
+     */
+    public EnumSet<WebPFrameFlag> getFrameFlags() {
+        return WebPFrameFlag.fromMask(reservedBD);
+    }
+
     public int getBlendingFlag() {
         return reservedBD & WebPFrameFlag.NO_BLEND.getMask();
     }
@@ -59,7 +69,7 @@ public class ANMFChunk extends LISTChunk {
     }
 
     public boolean hasFlag(WebPFrameFlag flag) {
-        return WebPFrameFlag.hasFlag(reservedBD, flag);
+        return flag != null && flag.isSet(reservedBD);
     }
 
     @Override

@@ -5,6 +5,7 @@ import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 import xyz.lychee.webp4j.model.WebPContainerFlag;
+import xyz.lychee.webp4j.model.WebPFrameFlag;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -78,6 +79,9 @@ class WebPChunkTest {
         assertTrue(vp8x.hasALPHFlag());
         assertTrue(vp8x.hasFlag(WebPContainerFlag.ANIMATION));
         assertTrue(vp8x.hasFlag(WebPContainerFlag.ALPHA));
+        assertTrue(vp8x.getContainerFlags().contains(WebPContainerFlag.ANIMATION));
+        assertTrue(vp8x.getContainerFlags().contains(WebPContainerFlag.ALPHA));
+        assertFalse(vp8x.getContainerFlags().contains(WebPContainerFlag.EXIF));
 
         ANIMChunk anim = new ANIMChunk(0xFFFFFFFF, 5);
         assertEquals(0xFFFFFFFF, anim.getBackgroundColor());
@@ -89,6 +93,10 @@ class WebPChunkTest {
         assertEquals(400, anmf.getFrameWidth());
         assertEquals(300, anmf.getFrameHeight());
         assertEquals(100, anmf.getFrameDuration());
+        assertTrue(anmf.hasFlag(WebPFrameFlag.ALPHA_BLENDING));
+        assertTrue(anmf.hasFlag(WebPFrameFlag.NO_DISPOSE));
+        assertTrue(anmf.getFrameFlags().contains(WebPFrameFlag.ALPHA_BLENDING));
+        assertTrue(anmf.getFrameFlags().contains(WebPFrameFlag.NO_DISPOSE));
 
         WebPChunk webp = new WebPChunk(vp8x, anim, anmf);
         ByteArrayOutputStream out = new ByteArrayOutputStream();

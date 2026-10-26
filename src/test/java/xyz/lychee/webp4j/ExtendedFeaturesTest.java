@@ -239,6 +239,25 @@ public class ExtendedFeaturesTest {
         assertFalse(WebPFrameFlag.hasFlag(combined, WebPFrameFlag.ALPHA_BLENDING));
         assertFalse(WebPFrameFlag.hasFlag(combined, WebPFrameFlag.NO_DISPOSE));
 
+        // Direct enum isSet() checks
+        assertTrue(WebPFrameFlag.NO_BLEND.isSet(combined));
+        assertTrue(WebPFrameFlag.DISPOSE_TO_BACKGROUND.isSet(combined));
+        assertFalse(WebPFrameFlag.ALPHA_BLENDING.isSet(combined));
+        assertFalse(WebPFrameFlag.NO_DISPOSE.isSet(combined));
+
+        // fromMask() enum sets
+        java.util.EnumSet<WebPFrameFlag> frameSet = WebPFrameFlag.fromMask(combined);
+        assertTrue(frameSet.contains(WebPFrameFlag.NO_BLEND));
+        assertTrue(frameSet.contains(WebPFrameFlag.DISPOSE_TO_BACKGROUND));
+        assertFalse(frameSet.contains(WebPFrameFlag.ALPHA_BLENDING));
+        assertFalse(frameSet.contains(WebPFrameFlag.NO_DISPOSE));
+
+        java.util.EnumSet<WebPFrameFlag> defaultFrameSet = WebPFrameFlag.fromMask(0);
+        assertTrue(defaultFrameSet.contains(WebPFrameFlag.ALPHA_BLENDING));
+        assertTrue(defaultFrameSet.contains(WebPFrameFlag.NO_DISPOSE));
+        assertFalse(defaultFrameSet.contains(WebPFrameFlag.NO_BLEND));
+        assertFalse(defaultFrameSet.contains(WebPFrameFlag.DISPOSE_TO_BACKGROUND));
+
         // AnimatedWebPEncoder with WebPFrameFlag
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 2, 20, 20)) {
@@ -260,5 +279,20 @@ public class ExtendedFeaturesTest {
         assertTrue(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.EXIF));
         assertFalse(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.XMP));
         assertFalse(WebPContainerFlag.hasFlag(containerMask, WebPContainerFlag.ICC_PROFILE));
+
+        // Direct enum isSet() checks
+        assertTrue(WebPContainerFlag.ANIMATION.isSet(containerMask));
+        assertTrue(WebPContainerFlag.ALPHA.isSet(containerMask));
+        assertTrue(WebPContainerFlag.EXIF.isSet(containerMask));
+        assertFalse(WebPContainerFlag.XMP.isSet(containerMask));
+        assertFalse(WebPContainerFlag.ICC_PROFILE.isSet(containerMask));
+
+        // fromMask() enum sets
+        java.util.EnumSet<WebPContainerFlag> containerSet = WebPContainerFlag.fromMask(containerMask);
+        assertTrue(containerSet.contains(WebPContainerFlag.ANIMATION));
+        assertTrue(containerSet.contains(WebPContainerFlag.ALPHA));
+        assertTrue(containerSet.contains(WebPContainerFlag.EXIF));
+        assertFalse(containerSet.contains(WebPContainerFlag.XMP));
+        assertFalse(containerSet.contains(WebPContainerFlag.ICC_PROFILE));
     }
 }
