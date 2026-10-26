@@ -1,9 +1,8 @@
 package xyz.lychee.webp4j.utils;
 
-import xyz.lychee.webp4j.chunks.*;
-import xyz.lychee.webp4j.jni.NativeWebP;
-import xyz.lychee.webp4j.utils.PixelConverter;
 import lombok.Getter;
+import xyz.lychee.webp4j.chunks.*;
+import xyz.lychee.webp4j.natives.NativeWebP;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -12,6 +11,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Getter
@@ -23,7 +23,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
 
     private final OutputStream out;
     private final boolean alpha;
-    private final List<Chunk> chunkList;
+    private final List<Chunk> chunks;
 
     public WebPEncoder(OutputStream out, boolean alpha, int frames, int width, int height) {
         this(out, alpha, frames, width, height, 0, 0x00000000);
@@ -33,16 +33,12 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         this.out = out;
         this.alpha = alpha;
 
-        this.chunkList = new ArrayList<>(2 + Math.max(0, frames));
-        this.chunkList.add(new VP8XChunk(VP8XChunk.FLAG_ANIM | (alpha ? VP8XChunk.FLAG_ALPH : 0), width, height));
-        this.chunkList.add(new ANIMChunk(backgroundColor, loopCount));
+        this.chunks = new ArrayList<>(2 + Math.max(0, frames));
+        this.chunks.add(new VP8XChunk(VP8XChunk.FLAG_ANIM | (alpha ? VP8XChunk.FLAG_ALPH : 0), width, height));
+        this.chunks.add(new ANIMChunk(backgroundColor, loopCount));
         for (int i = 0; i < frames; i++) {
-            this.chunkList.add(null);
+            this.chunks.add(null);
         }
-    }
-
-    public Chunk[] getChunks() {
-        return chunkList.toArray(new Chunk[0]);
     }
 
     public static void encode(BufferedImage image, float quality, OutputStream out) throws IOException {
@@ -122,9 +118,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
             containerChunks.add(new ICCPChunk(iccp));
         }
 
-        for (Chunk c : imageChunks) {
-            containerChunks.add(c);
-        }
+        containerChunks.addAll(Arrays.asList(imageChunks));
 
         if (exif != null && exif.length > 0) {
             containerChunks.add(new EXIFChunk(exif));
@@ -135,7 +129,7 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         }
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        WebPChunk webpChunk = new WebPChunk(containerChunks.toArray(new Chunk[containerChunks.size()]));
+        WebPChunk webpChunk = new WebPChunk(containerChunks.toArray(new Chunk[0]));
         webpChunk.write(baos);
         return baos.toByteArray();
     }
@@ -199,25 +193,25 @@ public class WebPEncoder implements AutoCloseable, Flushable {
         }
 
         Chunk[] subchunks = ChunkFactory.getChunks(webPData);
-        chunkList.add(new ANMFChunk(0, 0, width, height, duration, 0, subchunks));
+        chunks.add(new ANMFChunk(0, 0, width, height, duration, 0, subchunks));
     }
 
-    private void setChunkAt(int index, Chunk chunk) {
-        while (chunkList.size() <= index) {
-            chunkList.add(null);
+    public void setChunkAt(int index, Chunk chunk) {
+        while (chunks.size() <= index) {
+            chunks.add(null);
         }
-        chunkList.set(index, chunk);
+        chunks.set(index, chunk);
     }
 
     @Override
     public void flush() throws IOException {
-        List<Chunk> nonNull = new ArrayList<>(chunkList.size());
-        for (Chunk c : chunkList) {
+        List<Chunk> nonNull = new ArrayList<>(chunks.size());
+        for (Chunk c : chunks) {
             if (c != null) {
                 nonNull.add(c);
             }
         }
-        WebPChunk webp = new WebPChunk(nonNull.toArray(new Chunk[nonNull.size()]));
+        WebPChunk webp = new WebPChunk(nonNull.toArray(new Chunk[0]));
         webp.write(this.out);
         this.out.flush();
     }

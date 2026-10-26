@@ -6,7 +6,7 @@ import xyz.lychee.webp4j.batch.BatchProcessor;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.gif.GifToWebPConfig;
 import xyz.lychee.webp4j.gif.GifToWebPConverter;
-import xyz.lychee.webp4j.jni.NativeWebP;
+import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;

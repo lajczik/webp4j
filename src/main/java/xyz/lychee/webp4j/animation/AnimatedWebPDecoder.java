@@ -1,7 +1,7 @@
 package xyz.lychee.webp4j.animation;
 
 import xyz.lychee.webp4j.chunks.VP8XChunk;
-import xyz.lychee.webp4j.jni.NativeWebP;
+import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimatedWebPFrame;

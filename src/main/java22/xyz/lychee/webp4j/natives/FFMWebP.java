@@ -1,6 +1,6 @@
-package xyz.lychee.webp4j.ffm;
+package xyz.lychee.webp4j.natives;
 
-import xyz.lychee.webp4j.jni.NativeLibraryLoader;
+
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
