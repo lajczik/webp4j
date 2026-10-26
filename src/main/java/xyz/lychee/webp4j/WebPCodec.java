@@ -296,7 +296,7 @@ public final class WebPCodec {
      * @throws IllegalArgumentException If bufferedImage is null.
      */
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality, boolean lossless) throws IOException {
-        return encodeImage(bufferedImage, quality, lossless, true);
+        return WebPEncoder.encode(bufferedImage, quality, lossless);
     }
 
     /**
@@ -313,46 +313,21 @@ public final class WebPCodec {
      */
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality, boolean lossless,
                                      boolean multiThreaded) throws IOException {
-        if (bufferedImage == null) {
-            throw new IllegalArgumentException("The input BufferedImage cannot be null.");
-        }
-
-        if (!lossless && (quality < 0f || quality > 100f)) {
-            throw new IllegalArgumentException("Quality must be between 0 and 100, but was " + quality + ".");
-        }
-
-        int width = bufferedImage.getWidth();
-        int height = bufferedImage.getHeight();
-        boolean hasAlpha = bufferedImage.getColorModel().hasAlpha();
-
-        byte[] encodedWebP;
-        byte[] bgrPixels = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(bufferedImage);
-        if (bgrPixels != null) {
-            encodedWebP = NativeWebP.encodeBgr(bgrPixels, width, height, quality, lossless, multiThreaded);
-        } else {
-            int[] pixels = PixelConverter.toArgbPixels(bufferedImage, hasAlpha);
-            encodedWebP = NativeWebP.encode(pixels, width, height, quality, lossless, hasAlpha, multiThreaded);
-        }
-        if (encodedWebP == null || encodedWebP.length == 0) {
-            String encodingType = lossless ? "Lossless" : "Lossy";
-            throw new IOException(encodingType + " WebP encoding failed.");
-        }
-
-        return encodedWebP;
+        return WebPEncoder.encode(bufferedImage, quality, lossless, multiThreaded);
     }
 
     /**
      * Encodes an RGB/RGBA BufferedImage to a lossy WebP encoded byte array.
      */
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality) throws IOException {
-        return encodeImage(bufferedImage, quality, false);
+        return WebPEncoder.encode(bufferedImage, quality);
     }
 
     /**
      * Encodes an RGB/RGBA BufferedImage to a lossless WebP encoded byte array.
      */
     public static byte[] encodeLosslessImage(BufferedImage bufferedImage) throws IOException {
-        return encodeImage(bufferedImage, 0, true);
+        return WebPEncoder.encodeLossless(bufferedImage);
     }
 
     /**

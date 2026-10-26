@@ -3,6 +3,7 @@ package xyz.lychee.webp4j.gif;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimationInfo;
+import xyz.lychee.webp4j.animation.AnimatedWebPEncoder;
 import xyz.lychee.webp4j.utils.WebPEncoder;
 
 import java.awt.AlphaComposite;
@@ -174,7 +175,7 @@ public final class GifToWebPConverter {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         int loopCount = config.getLoopCount() == -1 ? gif.loopCount : config.getLoopCount();
 
-        try (WebPEncoder encoder = new WebPEncoder(baos, gif.hasTransparency, gif.frames.size(),
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, gif.hasTransparency, gif.frames.size(),
                 gif.width, gif.height, loopCount, 0)) {
             for (int i = 0; i < gif.frames.size(); i++) {
                 previousFrame = composeFrame(gif, i, canvas, previousFrame);
@@ -193,13 +194,7 @@ public final class GifToWebPConverter {
      */
     private static byte[] encodeSingleFrame(BufferedImage image, float quality, boolean lossless,
                                             boolean multiThreaded) throws IOException {
-        boolean hasAlpha = image.getColorModel().hasAlpha();
-        int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
-        byte[] result = NativeWebP.encode(pixels, image.getWidth(), image.getHeight(), quality, lossless, hasAlpha, multiThreaded);
-        if (result == null || result.length == 0) {
-            throw new IOException("Failed to encode single frame to WebP");
-        }
-        return result;
+        return WebPEncoder.encode(image, quality, lossless, multiThreaded);
     }
 
     /**
