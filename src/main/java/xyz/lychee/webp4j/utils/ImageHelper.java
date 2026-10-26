@@ -130,6 +130,46 @@ public final class ImageHelper {
     }
 
     /**
+     * Returns the BufferedImage as-is.
+     *
+     * @param img Input BufferedImage
+     * @return The same BufferedImage instance
+     */
+    public static BufferedImage toBufferedImage(BufferedImage img) {
+        return img;
+    }
+
+    /**
+     * Converts a generic {@link java.awt.image.RenderedImage} to a {@link BufferedImage}.
+     *
+     * @param img Input rendered image
+     * @return BufferedImage representation
+     */
+    public static BufferedImage toBufferedImage(RenderedImage img) {
+        if (img instanceof BufferedImage) {
+            return (BufferedImage) img;
+        }
+        if (img == null) {
+            return null;
+        }
+        ColorModel cm = img.getColorModel();
+        int width = img.getWidth();
+        int height = img.getHeight();
+        WritableRaster raster = cm.createCompatibleWritableRaster(width, height);
+        boolean isAlphaPremultiplied = cm.isAlphaPremultiplied();
+        java.util.Hashtable<String, Object> properties = new java.util.Hashtable<>();
+        String[] keys = img.getPropertyNames();
+        if (keys != null) {
+            for (String key : keys) {
+                properties.put(key, img.getProperty(key));
+            }
+        }
+        BufferedImage result = new BufferedImage(cm, raster, isAlphaPremultiplied, properties);
+        img.copyData(raster);
+        return result;
+    }
+
+    /**
      * Converts a generic {@link java.awt.Image} to a {@link BufferedImage}.
      *
      * @param img Input image

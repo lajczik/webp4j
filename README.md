@@ -34,6 +34,10 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
 - 🎞️ **High-Speed Animated WebP Decoding**:
   - Extract frames with accurate cumulative timestamps and display delays.
   - **O(1) Instant Header Inspection**: Query canvas dimensions, frame count, loop count, and transparency directly from container chunks in microseconds without decoding pixel buffers.
+- ☕ **Standard Java `ImageIO` Integration**:
+  - Automatically registered via `javax.imageio.spi.ImageReaderSpi` and `ImageWriterSpi`.
+  - Zero-friction drop-in: use `ImageIO.read(file)` and `ImageIO.write(image, "webp", file)` directly anywhere in your existing codebase.
+  - Full support for `WebPImageWriteParam` (lossless toggle, compression quality).
 - 🖼️ **Static WebP Encoding & Decoding**:
   - RGB & RGBA support with lossy (0–100 quality) and lossless compression.
   - **In-place decoding**: Decode directly into pre-allocated `BufferedImage` instances to eliminate garbage collection in render loops.
@@ -258,6 +262,38 @@ BufferedImage thumbnail = WebPDecoder.createThumbnail(webpFile, 200);
 
 ---
 
+## ☕ Standard Java ImageIO Integration
+
+WebP4j automatically registers Service Provider Interfaces (SPI) with Java's standard `ImageIO` framework. Any legacy or third-party code calling `ImageIO` automatically gains WebP reading and writing capabilities:
+
+```java
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import xyz.lychee.webp4j.imageio.WebPImageWriteParam;
+
+// 1. Reading WebP with standard ImageIO
+BufferedImage inputImage = ImageIO.read(new File("input.webp"));
+
+// 2. Writing WebP with standard ImageIO
+ImageIO.write(inputImage, "webp", new File("output.webp"));
+
+// 3. Customizing compression via WebPImageWriteParam
+ImageWriter writer = ImageIO.getImageWritersByFormatName("webp").next();
+try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("output_lossless.webp"))) {
+    writer.setOutput(ios);
+
+    WebPImageWriteParam param = (WebPImageWriteParam) writer.getDefaultWriteParam();
+    param.setLossless(true); // Toggle lossless VP8L compression
+
+    writer.write(null, new javax.imageio.IIOImage(inputImage, null, null), param);
+} finally {
+    writer.dispose();
+}
+```
+
+---
+
 ## 🔄 GIF to WebP Conversion
 
 Convert legacy animated GIFs to compact animated WebP files:
@@ -323,6 +359,10 @@ xyz.lychee.webp4j
  │    ├── AnimatedWebPDecoder.java  # Animated WebP extraction & animation info
  │    ├── BatchProcessor.java       # Parallel multi-core batch processing
  │    └── GifToWebPConverter.java   # GIF to WebP native/Java conversion
+ ├── imageio
+ │    ├── WebPImageReader.java      # ImageIO Reader SPI implementation
+ │    ├── WebPImageWriter.java      # ImageIO Writer SPI implementation
+ │    └── WebPImageWriteParam.java  # ImageIO WebP compression parameter handler
  ├── model
  │    ├── WebPContainerFlag.java    # VP8X feature flag enum (ANIMATION, ALPHA, EXIF, etc.)
  │    ├── WebPFrameFlag.java        # ANMF frame flag enum (NO_BLEND, DISPOSE_TO_BACKGROUND)
