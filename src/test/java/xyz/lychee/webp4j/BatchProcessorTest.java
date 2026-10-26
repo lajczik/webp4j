@@ -1,6 +1,6 @@
 package xyz.lychee.webp4j;
 
-import xyz.lychee.webp4j.batch.BatchProcessor;
+import xyz.lychee.webp4j.codec.BatchProcessor;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Color;

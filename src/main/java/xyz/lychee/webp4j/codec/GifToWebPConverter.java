@@ -1,10 +1,10 @@
-package xyz.lychee.webp4j.gif;
+package xyz.lychee.webp4j.codec;
 
-import xyz.lychee.webp4j.natives.NativeWebP;
-import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimationInfo;
-import xyz.lychee.webp4j.animation.AnimatedWebPEncoder;
-import xyz.lychee.webp4j.utils.WebPEncoder;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
+import xyz.lychee.webp4j.natives.NativeWebP;
+import xyz.lychee.webp4j.utils.GifDecoderJava;
+import xyz.lychee.webp4j.utils.PixelConverter;
 
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;

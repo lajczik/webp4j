@@ -1,6 +1,6 @@
 package xyz.lychee.webp4j.natives;
 
-import xyz.lychee.webp4j.exception.NativeLibraryNotFoundException;
+import xyz.lychee.webp4j.NativeLibraryNotFoundException;
 
 import java.io.File;
 import java.io.FileOutputStream;

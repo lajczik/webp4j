@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.animation;
+package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.chunks.VP8XChunk;
 import xyz.lychee.webp4j.natives.NativeWebP;

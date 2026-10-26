@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.gif;
+package xyz.lychee.webp4j.utils;
 
 import xyz.lychee.webp4j.model.AnimationInfo;
 import org.w3c.dom.NamedNodeMap;

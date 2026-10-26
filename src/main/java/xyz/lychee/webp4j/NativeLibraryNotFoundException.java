@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.exception;
+package xyz.lychee.webp4j;
 
 
 public class NativeLibraryNotFoundException extends RuntimeException {

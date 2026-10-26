@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.utils;
+package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.chunks.Chunk;
 import xyz.lychee.webp4j.chunks.ChunkFactory;
@@ -8,6 +8,7 @@ import xyz.lychee.webp4j.chunks.XMPChunk;
 import xyz.lychee.webp4j.model.VP8StatusCode;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 import xyz.lychee.webp4j.natives.NativeWebP;
+import xyz.lychee.webp4j.utils.PixelConverter;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;

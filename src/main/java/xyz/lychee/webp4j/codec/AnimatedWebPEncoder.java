@@ -1,11 +1,11 @@
-package xyz.lychee.webp4j.animation;
+package xyz.lychee.webp4j.codec;
 
 import lombok.Getter;
 import xyz.lychee.webp4j.chunks.*;
-import xyz.lychee.webp4j.gif.GifToWebPConfig;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
-import xyz.lychee.webp4j.utils.WebPEncoder;
+import xyz.lychee.webp4j.codec.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;

@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.gif;
+package xyz.lychee.webp4j.model;
 
 import lombok.Getter;
 

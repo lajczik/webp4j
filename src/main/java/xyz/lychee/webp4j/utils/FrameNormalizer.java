@@ -1,4 +1,4 @@
-package xyz.lychee.webp4j.animation;
+package xyz.lychee.webp4j.utils;
 
 import xyz.lychee.webp4j.model.FitMode;
 

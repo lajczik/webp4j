@@ -1,7 +1,8 @@
-package xyz.lychee.webp4j.utils;
+package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.natives.NativeWebP;
+import xyz.lychee.webp4j.utils.PixelConverter;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;

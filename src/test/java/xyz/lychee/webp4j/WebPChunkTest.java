@@ -1,6 +1,6 @@
 package xyz.lychee.webp4j;
 
-import xyz.lychee.webp4j.animation.AnimatedWebPDecoder;
+import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;

@@ -1,8 +1,8 @@
-package xyz.lychee.webp4j.batch;
+package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.WebPCodec;
-import xyz.lychee.webp4j.utils.WebPDecoder;
-import xyz.lychee.webp4j.utils.WebPEncoder;
+import xyz.lychee.webp4j.codec.WebPDecoder;
+import xyz.lychee.webp4j.codec.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;

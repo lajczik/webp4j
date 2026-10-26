@@ -1,11 +1,11 @@
 package xyz.lychee.webp4j;
 
 import org.junit.jupiter.api.Test;
-import xyz.lychee.webp4j.animation.AnimatedWebPEncoder;
-import xyz.lychee.webp4j.gif.GifToWebPConfig;
+import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
-import xyz.lychee.webp4j.utils.WebPEncoder;
+import xyz.lychee.webp4j.codec.WebPEncoder;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;

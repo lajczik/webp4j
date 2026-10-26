@@ -1,17 +1,17 @@
 package xyz.lychee.webp4j;
 
-import xyz.lychee.webp4j.animation.AnimatedWebPDecoder;
-import xyz.lychee.webp4j.animation.AnimatedWebPEncoder;
-import xyz.lychee.webp4j.batch.BatchProcessor;
+import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
+import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
+import xyz.lychee.webp4j.codec.BatchProcessor;
 import xyz.lychee.webp4j.chunks.Chunk;
-import xyz.lychee.webp4j.gif.GifToWebPConfig;
-import xyz.lychee.webp4j.gif.GifToWebPConverter;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
+import xyz.lychee.webp4j.codec.GifToWebPConverter;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
-import xyz.lychee.webp4j.utils.WebPDecoder;
-import xyz.lychee.webp4j.utils.WebPEncoder;
+import xyz.lychee.webp4j.codec.WebPDecoder;
+import xyz.lychee.webp4j.codec.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
