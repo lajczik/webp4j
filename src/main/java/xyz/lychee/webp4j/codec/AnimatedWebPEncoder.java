@@ -3,6 +3,7 @@ package xyz.lychee.webp4j.codec;
 import lombok.Getter;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.GifToWebPConfig;
+import xyz.lychee.webp4j.model.WebPContainerFlag;
 import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
@@ -31,15 +32,6 @@ import java.util.List;
 @Getter
 public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
 
-    @Deprecated
-    public static final int FLAG_NO_BLEND = WebPFrameFlag.NO_BLEND.getMask();
-    @Deprecated
-    public static final int FLAG_ALPHA_BLENDING = WebPFrameFlag.ALPHA_BLENDING.getMask();
-    @Deprecated
-    public static final int FLAG_NO_DISPOSE = WebPFrameFlag.NO_DISPOSE.getMask();
-    @Deprecated
-    public static final int FLAG_DISPOSE_TO_BACKGROUND = WebPFrameFlag.DISPOSE_TO_BACKGROUND.getMask();
-
     private final OutputStream out;
     private final boolean alpha;
     private final List<Chunk> chunks;
@@ -53,7 +45,8 @@ public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
         this.alpha = alpha;
 
         this.chunks = new ArrayList<>(2 + Math.max(0, frames));
-        this.chunks.add(new VP8XChunk(VP8XChunk.FLAG_ANIM | (alpha ? VP8XChunk.FLAG_ALPH : 0), width, height));
+        int vp8xFlags = WebPContainerFlag.ANIMATION.getMask() | (alpha ? WebPContainerFlag.ALPHA.getMask() : 0);
+        this.chunks.add(new VP8XChunk(vp8xFlags, width, height));
         this.chunks.add(new ANIMChunk(backgroundColor, loopCount));
         for (int i = 0; i < frames; i++) {
             this.chunks.add(null);

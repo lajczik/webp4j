@@ -4,6 +4,7 @@ import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
+import xyz.lychee.webp4j.model.WebPContainerFlag;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -70,11 +71,13 @@ class WebPChunkTest {
 
     @Test
     void testChunkAssemblyAndSerialization() throws IOException {
-        VP8XChunk vp8x = new VP8XChunk(VP8XChunk.FLAG_ANIM | VP8XChunk.FLAG_ALPH, 400, 300);
+        VP8XChunk vp8x = new VP8XChunk(400, 300, WebPContainerFlag.ANIMATION, WebPContainerFlag.ALPHA);
         assertEquals(400, vp8x.getCanvasWidth());
         assertEquals(300, vp8x.getCanvasHeight());
         assertTrue(vp8x.hasANIMFlag());
         assertTrue(vp8x.hasALPHFlag());
+        assertTrue(vp8x.hasFlag(WebPContainerFlag.ANIMATION));
+        assertTrue(vp8x.hasFlag(WebPContainerFlag.ALPHA));
 
         ANIMChunk anim = new ANIMChunk(0xFFFFFFFF, 5);
         assertEquals(0xFFFFFFFF, anim.getBackgroundColor());

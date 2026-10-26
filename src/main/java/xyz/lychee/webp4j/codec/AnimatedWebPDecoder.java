@@ -6,6 +6,7 @@ import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimatedWebPFrame;
 import xyz.lychee.webp4j.model.AnimationInfo;
+import xyz.lychee.webp4j.model.WebPContainerFlag;
 import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.image.BufferedImage;
@@ -65,7 +66,7 @@ public final class AnimatedWebPDecoder {
                 int flags = Util.toInt32(webPData, payloadOffset);
                 info.setWidth(1 + Util.toUInt24(webPData, payloadOffset + 4));
                 info.setHeight(1 + Util.toUInt24(webPData, payloadOffset + 7));
-                info.setHasTransparency((flags & VP8XChunk.ALPH_MASK) != 0);
+                info.setHasTransparency(WebPContainerFlag.hasFlag(flags, WebPContainerFlag.ALPHA));
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'I' && c3 == 'M' && payloadLen >= 6) {
                 info.setLoopCount(Util.toUInt16(webPData, payloadOffset + 4));
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'M' && c3 == 'F') {

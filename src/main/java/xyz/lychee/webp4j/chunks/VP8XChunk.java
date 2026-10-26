@@ -8,16 +8,6 @@ import java.io.OutputStream;
 import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
 public class VP8XChunk extends Chunk {
-    public static final int ICCP_MASK = WebPContainerFlag.ICC_PROFILE.getMask();
-    public static final int ALPH_MASK = WebPContainerFlag.ALPHA.getMask();
-    public static final int EXIF_MASK = WebPContainerFlag.EXIF.getMask();
-    public static final int XMP_MASK = WebPContainerFlag.XMP.getMask();
-    public static final int ANIM_MASK = WebPContainerFlag.ANIMATION.getMask();
-    public static final int FLAG_ICCP = WebPContainerFlag.ICC_PROFILE.getMask();
-    public static final int FLAG_ALPH = WebPContainerFlag.ALPHA.getMask();
-    public static final int FLAG_EXIF = WebPContainerFlag.EXIF.getMask();
-    public static final int FLAG_XMP = WebPContainerFlag.XMP.getMask();
-    public static final int FLAG_ANIM = WebPContainerFlag.ANIMATION.getMask();
 
     public static final byte[] VP8X = new byte[]{'V', 'P', '8', 'X'};
     private final int canvasWidth;
@@ -48,23 +38,23 @@ public class VP8XChunk extends Chunk {
     }
 
     public boolean hasICCPFlag() {
-        return (rsvILEXARReserved & ICCP_MASK) != 0;
+        return hasFlag(WebPContainerFlag.ICC_PROFILE);
     }
 
     public boolean hasALPHFlag() {
-        return (rsvILEXARReserved & ALPH_MASK) != 0;
+        return hasFlag(WebPContainerFlag.ALPHA);
     }
 
     public boolean hasEXIFFlag() {
-        return (rsvILEXARReserved & EXIF_MASK) != 0;
+        return hasFlag(WebPContainerFlag.EXIF);
     }
 
     public boolean hasXMPFlag() {
-        return (rsvILEXARReserved & XMP_MASK) != 0;
+        return hasFlag(WebPContainerFlag.XMP);
     }
 
     public boolean hasANIMFlag() {
-        return (rsvILEXARReserved & ANIM_MASK) != 0;
+        return hasFlag(WebPContainerFlag.ANIMATION);
     }
 
     public boolean hasFlag(WebPContainerFlag flag) {

@@ -138,8 +138,8 @@ public class WebPBitstreamFeatures {
                     int flags = Util.toInt32(webPData, 20);
                     f.setWidth(1 + Util.toUInt24(webPData, 24));
                     f.setHeight(1 + Util.toUInt24(webPData, 27));
-                    f.setHasAlpha((flags & VP8XChunk.ALPH_MASK) != 0);
-                    f.setHasAnimation((flags & VP8XChunk.ANIM_MASK) != 0);
+                    f.setHasAlpha(WebPContainerFlag.hasFlag(flags, WebPContainerFlag.ALPHA));
+                    f.setHasAnimation(WebPContainerFlag.hasFlag(flags, WebPContainerFlag.ANIMATION));
 
                     // Scan subsequent chunks for format if not animated
                     int offset = 30; // 12 + 8 (VP8X header) + 10 (VP8X payload)

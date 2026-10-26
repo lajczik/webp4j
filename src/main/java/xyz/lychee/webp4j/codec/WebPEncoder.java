@@ -1,6 +1,7 @@
 package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.chunks.*;
+import xyz.lychee.webp4j.model.WebPContainerFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.utils.Util;
@@ -198,10 +199,10 @@ public final class WebPEncoder {
 
         Chunk[] imageChunks = ChunkFactory.getChunks(bitstream);
 
-        int flags = (hasAlpha ? VP8XChunk.FLAG_ALPH : 0)
-                | (iccp != null ? VP8XChunk.FLAG_ICCP : 0)
-                | (exif != null ? VP8XChunk.FLAG_EXIF : 0)
-                | (xmp != null ? VP8XChunk.FLAG_XMP : 0);
+        int flags = (hasAlpha ? WebPContainerFlag.ALPHA.getMask() : 0)
+                | (iccp != null ? WebPContainerFlag.ICC_PROFILE.getMask() : 0)
+                | (exif != null ? WebPContainerFlag.EXIF.getMask() : 0)
+                | (xmp != null ? WebPContainerFlag.XMP.getMask() : 0);
 
         List<Chunk> containerChunks = new ArrayList<>();
         containerChunks.add(new VP8XChunk(flags, width, height));

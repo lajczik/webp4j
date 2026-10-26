@@ -9,8 +9,6 @@ import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
 public class ANMFChunk extends LISTChunk {
 
-    public static final int BLENDING_MASK = WebPFrameFlag.NO_BLEND.getMask();
-    public static final int DISPOSAL_METHOD_MASK = WebPFrameFlag.DISPOSE_TO_BACKGROUND.getMask();
     public static final byte[] ANMF = new byte[]{'A', 'N', 'M', 'F'};
     private final int x, y, width, height, duration, reservedBD;
 
@@ -53,11 +51,11 @@ public class ANMFChunk extends LISTChunk {
     }
 
     public int getBlendingFlag() {
-        return reservedBD & BLENDING_MASK;
+        return reservedBD & WebPFrameFlag.NO_BLEND.getMask();
     }
 
     public int getDisposalMethodFlag() {
-        return reservedBD & DISPOSAL_METHOD_MASK;
+        return reservedBD & WebPFrameFlag.DISPOSE_TO_BACKGROUND.getMask();
     }
 
     public boolean hasFlag(WebPFrameFlag flag) {
