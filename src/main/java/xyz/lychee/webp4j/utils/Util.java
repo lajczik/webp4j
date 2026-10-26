@@ -104,10 +104,10 @@ public final class Util {
     }
 
     public static int readInt16(InputStream in) throws IOException {
-        byte[] buf = new byte[2];
-        if (readNBytes(in, buf, 0, 2) != 2) throw new EOFException();
-        return (((buf[1] & 0xFF) << 8) |
-                (buf[0] & 0xFF));
+        int b0 = in.read();
+        int b1 = in.read();
+        if ((b0 | b1) < 0) throw new EOFException();
+        return (b1 << 8) | b0;
     }
 
     public static int readUInt16(InputStream in) throws IOException {
@@ -124,11 +124,11 @@ public final class Util {
     }
 
     public static int readInt24(InputStream in) throws IOException {
-        byte[] buf = new byte[3];
-        if (readNBytes(in, buf, 0, 3) != 3) throw new EOFException();
-        return (((buf[2] & 0xFF) << 16) |
-                ((buf[1] & 0xFF) << 8) |
-                (buf[0] & 0xFF));
+        int b0 = in.read();
+        int b1 = in.read();
+        int b2 = in.read();
+        if ((b0 | b1 | b2) < 0) throw new EOFException();
+        return (b2 << 16) | (b1 << 8) | b0;
     }
 
     public static int readUInt24(InputStream in) throws IOException {
@@ -146,9 +146,12 @@ public final class Util {
     }
 
     public static int readInt32(InputStream in) throws IOException {
-        byte[] buf = new byte[4];
-        if (readNBytes(in, buf, 0, 4) != 4) throw new EOFException();
-        return toInt32(buf);
+        int b0 = in.read();
+        int b1 = in.read();
+        int b2 = in.read();
+        int b3 = in.read();
+        if ((b0 | b1 | b2 | b3) < 0) throw new EOFException();
+        return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
     }
 
     public static int toInt32(byte[] buf) {

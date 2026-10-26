@@ -221,8 +221,9 @@ public final class WebPEncoder {
             containerChunks.add(new XMPChunk(xmp.getBytes(StandardCharsets.UTF_8)));
         }
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         WebPChunk webpChunk = new WebPChunk(containerChunks.toArray(new Chunk[0]));
+        int initialSize = (int) Math.min(Integer.MAX_VALUE, webpChunk.getFullSize());
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(Math.max(1024, initialSize));
         webpChunk.write(baos);
         return baos.toByteArray();
     }

@@ -7,16 +7,20 @@ import xyz.lychee.webp4j.chunks.ICCPChunk;
 import xyz.lychee.webp4j.chunks.XMPChunk;
 import xyz.lychee.webp4j.model.VP8StatusCode;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
+import xyz.lychee.webp4j.model.WebPContainerFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
+import xyz.lychee.webp4j.utils.ImageHelper;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -173,10 +177,38 @@ public final class WebPDecoder {
     }
 
     public static int[] getInfo(File file) throws IOException {
+        if (file == null) {
+            throw new IllegalArgumentException("File cannot be null");
+        }
+        try (InputStream in = new FileInputStream(file)) {
+            byte[] header = new byte[64];
+            int read = in.read(header);
+            if (read >= 30) {
+                try {
+                    return getInfo(header);
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
         return getInfo(Util.readFileBytes(file));
     }
 
     public static int[] getInfo(Path path) throws IOException {
+        if (path == null) {
+            throw new IllegalArgumentException("Path cannot be null");
+        }
+        try (InputStream in = Files.newInputStream(path)) {
+            byte[] header = new byte[64];
+            int read = in.read(header);
+            if (read >= 30) {
+                try {
+                    return getInfo(header);
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
         return getInfo(Util.readFileBytes(path));
     }
 
@@ -260,6 +292,53 @@ public final class WebPDecoder {
     }
 
     /**
+     * Decodes a WebP image directly into a pre-allocated BufferedImage canvas.
+     * Dimensions of the destination image must match the WebP image dimensions.
+     *
+     * @param webPData    WebP image data
+     * @param destination Pre-allocated BufferedImage
+     * @throws IOException              If decoding fails or dimensions do not match
+     * @throws IllegalArgumentException If either argument is null
+     */
+    public static void decode(byte[] webPData, BufferedImage destination) throws IOException {
+        if (webPData == null || destination == null) {
+            throw new IllegalArgumentException("Inputs cannot be null.");
+        }
+        int[] dims = getInfo(webPData);
+        if (destination.getWidth() != dims[0] || destination.getHeight() != dims[1]) {
+            throw new IllegalArgumentException(String.format(
+                    "Destination dimensions (%dx%d) do not match WebP dimensions (%dx%d)",
+                    destination.getWidth(), destination.getHeight(), dims[0], dims[1]));
+        }
+        int[] pixels = PixelConverter.toArgbPixels(destination, destination.getColorModel().hasAlpha());
+        if (!decodeInto(webPData, pixels, dims[0] * 4)) {
+            throw new IOException("Failed to decode WebP data into destination image.");
+        }
+    }
+
+    /**
+     * Decodes and scales a WebP image into a thumbnail preserving aspect ratio,
+     * scaled so that neither dimension exceeds maxDimension.
+     *
+     * @param webPData     WebP image data
+     * @param maxDimension Maximum allowed width or height
+     * @return Thumbnail BufferedImage
+     * @throws IOException If decoding fails
+     */
+    public static BufferedImage createThumbnail(byte[] webPData, int maxDimension) throws IOException {
+        BufferedImage img = decodeFirstFrame(webPData);
+        return ImageHelper.createThumbnail(img, maxDimension);
+    }
+
+    public static BufferedImage createThumbnail(File file, int maxDimension) throws IOException {
+        return createThumbnail(Util.readFileBytes(file), maxDimension);
+    }
+
+    public static BufferedImage createThumbnail(Path path, int maxDimension) throws IOException {
+        return createThumbnail(Util.readFileBytes(path), maxDimension);
+    }
+
+    /**
      * Checks if a WebP file is animated using fast container chunk inspection,
      * without invoking native code or decoding pixels.
      *
@@ -270,28 +349,48 @@ public final class WebPDecoder {
         if (webPData == null || webPData.length < 16) {
             return false;
         }
-        try {
-            WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
-            return features.isHasAnimation();
-        } catch (Exception e) {
+        if (webPData[0] != 'R' || webPData[1] != 'I' || webPData[2] != 'F' || webPData[3] != 'F'
+                || webPData[8] != 'W' || webPData[9] != 'E' || webPData[10] != 'B' || webPData[11] != 'P') {
             return false;
         }
+        if (webPData[12] == 'V' && webPData[13] == 'P' && webPData[14] == '8') {
+            if (webPData[15] == 'X' && webPData.length >= 24) {
+                int flags = Util.toInt32(webPData, 20);
+                return WebPContainerFlag.ANIMATION.isSet(flags);
+            }
+            return false;
+        }
+        return false;
     }
 
     public static boolean isAnimated(File file) {
-        try {
-            return isAnimated(Util.readFileBytes(file));
-        } catch (Exception e) {
+        if (file == null || !file.exists() || file.length() < 16) {
             return false;
         }
+        try (InputStream in = new FileInputStream(file)) {
+            byte[] header = new byte[30];
+            int read = in.read(header);
+            if (read >= 16) {
+                return isAnimated(header);
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     public static boolean isAnimated(Path path) {
-        try {
-            return isAnimated(Util.readFileBytes(path));
-        } catch (Exception e) {
+        if (path == null || !Files.exists(path)) {
             return false;
         }
+        try (InputStream in = Files.newInputStream(path)) {
+            byte[] header = new byte[30];
+            int read = in.read(header);
+            if (read >= 16) {
+                return isAnimated(header);
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     public static boolean isAnimated(InputStream in) {
@@ -305,6 +404,55 @@ public final class WebPDecoder {
     public static boolean isAnimated(ByteBuffer buffer) {
         try {
             return isAnimated(Util.toByteArray(buffer));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Checks if a WebP image contains transparency / alpha channel.
+     *
+     * @param webPData Byte array containing WebP image data
+     * @return true if image bitstream contains an alpha channel
+     */
+    public static boolean hasAlpha(byte[] webPData) {
+        if (webPData == null || webPData.length < 16) {
+            return false;
+        }
+        try {
+            return getBitstreamFeatures(webPData).isHasAlpha();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean hasAlpha(File file) {
+        try {
+            return hasAlpha(Util.readFileBytes(file));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean hasAlpha(Path path) {
+        try {
+            return hasAlpha(Util.readFileBytes(path));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean hasAlpha(InputStream in) {
+        try {
+            return hasAlpha(Util.readAllBytes(in));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean hasAlpha(ByteBuffer buffer) {
+        try {
+            return hasAlpha(Util.toByteArray(buffer));
         } catch (Exception e) {
             return false;
         }

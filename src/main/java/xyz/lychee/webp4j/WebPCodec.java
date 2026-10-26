@@ -251,6 +251,10 @@ public final class WebPCodec {
         return WebPDecoder.decode(webPData);
     }
 
+    public static void decodeImage(byte[] webPData, BufferedImage destination) throws IOException {
+        WebPDecoder.decode(webPData, destination);
+    }
+
     public static BufferedImage decodeImage(File file) throws IOException {
         return WebPDecoder.decode(file);
     }
@@ -281,6 +285,34 @@ public final class WebPCodec {
 
     public static BufferedImage decodeFirstFrame(InputStream in) throws IOException {
         return WebPDecoder.decodeFirstFrame(in);
+    }
+
+    public static BufferedImage createThumbnail(byte[] webPData, int maxDimension) throws IOException {
+        return WebPDecoder.createThumbnail(webPData, maxDimension);
+    }
+
+    public static BufferedImage createThumbnail(File file, int maxDimension) throws IOException {
+        return WebPDecoder.createThumbnail(file, maxDimension);
+    }
+
+    public static BufferedImage createThumbnail(Path path, int maxDimension) throws IOException {
+        return WebPDecoder.createThumbnail(path, maxDimension);
+    }
+
+    public static boolean hasAlpha(byte[] webPData) {
+        return WebPDecoder.hasAlpha(webPData);
+    }
+
+    public static boolean hasAlpha(File file) {
+        return WebPDecoder.hasAlpha(file);
+    }
+
+    public static boolean hasAlpha(Path path) {
+        return WebPDecoder.hasAlpha(path);
+    }
+
+    public static boolean hasAlpha(InputStream in) {
+        return WebPDecoder.hasAlpha(in);
     }
 
     // ============================================

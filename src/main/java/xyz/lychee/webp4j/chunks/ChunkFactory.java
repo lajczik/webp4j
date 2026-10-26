@@ -106,9 +106,8 @@ public final class ChunkFactory {
             if (payloadOffset + payloadLen > endOffset) {
                 payloadLen = Math.max(0, endOffset - payloadOffset);
             }
-            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
 
-            chunks.add(createChunkFromOffset(data, offset, payload));
+            chunks.add(createChunkFromOffset(data, offset, payloadOffset, payloadLen));
 
             int padding = Util.isOdd(size) ? 1 : 0;
             offset = payloadOffset + payloadLen + padding;
@@ -116,44 +115,51 @@ public final class ChunkFactory {
         return Collections.unmodifiableList(chunks);
     }
 
-    private static Chunk createChunkFromOffset(byte[] data, int offset, byte[] payload) {
+    private static Chunk createChunkFromOffset(byte[] data, int offset, int payloadOffset, int payloadLen) {
         if (matchesFourCC(data, offset, VP8Chunk.VP8)) {
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new VP8Chunk(payload);
         } else if (matchesFourCC(data, offset, VP8LChunk.VP8L)) {
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new VP8LChunk(payload);
-        } else if (matchesFourCC(data, offset, VP8XChunk.VP8X) && payload.length >= 10) {
-            int flags = Util.toInt32(payload, 0);
-            int canvasWidth = 1 + Util.toUInt24(payload, 4);
-            int canvasHeight = 1 + Util.toUInt24(payload, 7);
+        } else if (matchesFourCC(data, offset, VP8XChunk.VP8X) && payloadLen >= 10) {
+            int flags = Util.toInt32(data, payloadOffset);
+            int canvasWidth = 1 + Util.toUInt24(data, payloadOffset + 4);
+            int canvasHeight = 1 + Util.toUInt24(data, payloadOffset + 7);
             return new VP8XChunk(flags, canvasWidth, canvasHeight);
-        } else if (matchesFourCC(data, offset, ANIMChunk.ANIM) && payload.length >= 6) {
-            int bgColor = Util.toInt32(payload, 0);
-            int loopCount = Util.toUInt16(payload, 4);
+        } else if (matchesFourCC(data, offset, ANIMChunk.ANIM) && payloadLen >= 6) {
+            int bgColor = Util.toInt32(data, payloadOffset);
+            int loopCount = Util.toUInt16(data, payloadOffset + 4);
             return new ANIMChunk(bgColor, loopCount);
-        } else if (matchesFourCC(data, offset, ANMFChunk.ANMF) && payload.length >= 16) {
-            int x = Util.toUInt24(payload, 0);
-            int y = Util.toUInt24(payload, 3);
-            int width = 1 + Util.toUInt24(payload, 6);
-            int height = 1 + Util.toUInt24(payload, 9);
-            int duration = Util.toUInt24(payload, 12);
-            int flags = payload[15] & 0xFF;
+        } else if (matchesFourCC(data, offset, ANMFChunk.ANMF) && payloadLen >= 16) {
+            int x = Util.toUInt24(data, payloadOffset);
+            int y = Util.toUInt24(data, payloadOffset + 3);
+            int width = 1 + Util.toUInt24(data, payloadOffset + 6);
+            int height = 1 + Util.toUInt24(data, payloadOffset + 9);
+            int duration = Util.toUInt24(data, payloadOffset + 12);
+            int flags = data[payloadOffset + 15] & 0xFF;
 
             Chunk[] subchunks = EMPTY_CHUNK_ARRAY;
-            if (payload.length > 16) {
-                List<Chunk> parsedSubchunks = parseChunksFromOffset(payload, 16, payload.length);
+            if (payloadLen > 16) {
+                List<Chunk> parsedSubchunks = parseChunksFromOffset(data, payloadOffset + 16, payloadOffset + payloadLen);
                 subchunks = parsedSubchunks.toArray(new Chunk[parsedSubchunks.size()]);
             }
             return new ANMFChunk(x, y, width, height, duration, flags, subchunks);
         } else if (matchesFourCC(data, offset, ALPHChunk.ALPH)) {
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new ALPHChunk(payload);
         } else if (matchesFourCC(data, offset, ICCPChunk.ICCP)) {
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new ICCPChunk(payload);
         } else if (matchesFourCC(data, offset, EXIFChunk.EXIF)) {
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new EXIFChunk(payload);
         } else if (matchesFourCC(data, offset, XMPChunk.XMP)) {
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new XMPChunk(payload);
         } else {
             byte[] fourCC = Arrays.copyOfRange(data, offset, offset + 4);
+            byte[] payload = Arrays.copyOfRange(data, payloadOffset, payloadOffset + payloadLen);
             return new RawDataChunk(fourCC, payload);
         }
     }

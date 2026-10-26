@@ -295,4 +295,91 @@ public class ExtendedFeaturesTest {
         assertFalse(containerSet.contains(WebPContainerFlag.XMP));
         assertFalse(containerSet.contains(WebPContainerFlag.ICC_PROFILE));
     }
+
+    @Test
+    void testOptimizedUtilStreamReading() throws IOException {
+        byte[] data = new byte[]{0x12, 0x34, 0x56, 0x78};
+        try (ByteArrayInputStream in = new ByteArrayInputStream(data)) {
+            int val16 = Util.readInt16(in);
+            assertEquals(0x3412, val16);
+        }
+
+        try (ByteArrayInputStream in = new ByteArrayInputStream(data)) {
+            int val24 = Util.readInt24(in);
+            assertEquals(0x563412, val24);
+        }
+
+        try (ByteArrayInputStream in = new ByteArrayInputStream(data)) {
+            int val32 = Util.readInt32(in);
+            assertEquals(0x78563412, val32);
+        }
+
+        // EOF check
+        assertThrows(java.io.EOFException.class, () -> {
+            try (ByteArrayInputStream in = new ByteArrayInputStream(new byte[]{0x01})) {
+                Util.readInt16(in);
+            }
+        });
+    }
+
+    @Test
+    void testOptimizedHeaderInspectionAndAlpha() throws IOException {
+        BufferedImage opaque = createTestImage(40, 30, false);
+        BufferedImage transparent = createTestImage(40, 30, true);
+
+        File opaqueFile = tempDir.resolve("opaque.webp").toFile();
+        File transFile = tempDir.resolve("transparent.webp").toFile();
+
+        WebPEncoder.encode(opaque, opaqueFile, 80.0f);
+        WebPEncoder.encode(transparent, transFile, 80.0f);
+
+        // hasAlpha
+        assertFalse(WebPDecoder.hasAlpha(opaqueFile));
+        assertFalse(WebPCodec.hasAlpha(opaqueFile));
+        assertTrue(WebPDecoder.hasAlpha(transFile));
+        assertTrue(WebPCodec.hasAlpha(transFile));
+
+        // getInfo from File (optimized 64-byte header reader)
+        int[] dims = WebPDecoder.getInfo(opaqueFile);
+        assertEquals(40, dims[0]);
+        assertEquals(30, dims[1]);
+
+        // isAnimated (optimized 30-byte header reader)
+        assertFalse(WebPDecoder.isAnimated(opaqueFile));
+        assertFalse(WebPDecoder.isAnimated(transFile));
+    }
+
+    @Test
+    void testInPlaceDestinationDecoding() throws IOException {
+        BufferedImage src = createTestImage(32, 32, true);
+        byte[] webPData = WebPEncoder.encode(src, 90.0f);
+
+        BufferedImage dest = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+        WebPDecoder.decode(webPData, dest);
+
+        assertEquals(32, dest.getWidth());
+        assertEquals(32, dest.getHeight());
+        assertNotEquals(0, dest.getRGB(10, 10));
+
+        // Dimension mismatch error
+        BufferedImage wrongSize = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.decode(webPData, wrongSize));
+    }
+
+    @Test
+    void testWebPThumbnailCreation() throws IOException {
+        BufferedImage src = createTestImage(100, 50, false);
+        byte[] webPData = WebPEncoder.encode(src, 80.0f);
+
+        BufferedImage thumb = WebPDecoder.createThumbnail(webPData, 40);
+        assertNotNull(thumb);
+        assertEquals(40, thumb.getWidth());
+        assertEquals(20, thumb.getHeight());
+
+        File webpFile = tempDir.resolve("thumb_test.webp").toFile();
+        WebPEncoder.encode(src, webpFile, 80.0f);
+        BufferedImage thumbFile = WebPDecoder.createThumbnail(webpFile, 40);
+        assertEquals(40, thumbFile.getWidth());
+        assertEquals(20, thumbFile.getHeight());
+    }
 }

@@ -47,7 +47,8 @@ public final class AnimatedWebPDecoder {
         }
 
         AnimationInfo info = new AnimationInfo();
-        List<Integer> delayList = new ArrayList<>();
+        int[] delays = new int[16];
+        int frameCount = 0;
         int offset = 12;
         int endOffset = webPData.length;
         int totalDuration = 0;
@@ -70,26 +71,21 @@ public final class AnimatedWebPDecoder {
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'I' && c3 == 'M' && payloadLen >= 6) {
                 info.setLoopCount(Util.toUInt16(webPData, payloadOffset + 4));
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'M' && c3 == 'F') {
-                if (payloadLen >= 16) {
-                    int duration = Util.toUInt24(webPData, payloadOffset + 12);
-                    delayList.add(duration);
-                    totalDuration += duration;
-                } else {
-                    delayList.add(0);
+                int duration = (payloadLen >= 16) ? Util.toUInt24(webPData, payloadOffset + 12) : 0;
+                if (frameCount == delays.length) {
+                    delays = java.util.Arrays.copyOf(delays, delays.length * 2);
                 }
+                delays[frameCount++] = duration;
+                totalDuration += duration;
             }
 
             int padding = Util.isOdd(size) ? 1 : 0;
             offset = payloadOffset + (int) size + padding;
         }
 
-        info.setFrameCount(delayList.size());
+        info.setFrameCount(frameCount);
         info.setTotalDuration(totalDuration);
-        int[] delays = new int[delayList.size()];
-        for (int i = 0; i < delayList.size(); i++) {
-            delays[i] = delayList.get(i);
-        }
-        info.setDelays(delays);
+        info.setDelays(java.util.Arrays.copyOf(delays, frameCount));
         return info;
     }
 

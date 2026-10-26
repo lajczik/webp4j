@@ -38,7 +38,9 @@ public abstract class Chunk {
     }
 
     protected void writePadding(OutputStream out) throws IOException {
-        Util.writePadding(out, padding);
+        if (padding > 0) {
+            out.write(0);
+        }
     }
 
     public final void write(OutputStream out) throws IOException {
