@@ -3,18 +3,23 @@ package xyz.lychee.webp4j.codec;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
+import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 /**
  * Encoder for generating static WebP images.
+ *
+ * @author MrNanko
  */
 public final class WebPEncoder {
 
@@ -46,10 +51,6 @@ public final class WebPEncoder {
         int height = image.getHeight();
         boolean hasAlpha = image.getColorModel().hasAlpha();
 
-        // Single-pass pixel read. If the source raster has an unpackable 3-byte
-        // BGR backing array (standard TYPE_3BYTE_BGR or custom RGB with matching
-        // pixel layout), skip int[] ARGB conversion entirely and pass the raw
-        // BGR bytes to WebPEncodeBGR / WebPEncodeLosslessBGR.
         byte[] encodedWebP;
         byte[] bgrPixels = hasAlpha ? null : PixelConverter.bgrPixelsOrNull(image);
         if (bgrPixels != null) {
@@ -69,12 +70,6 @@ public final class WebPEncoder {
 
     /**
      * Encodes a BufferedImage to a WebP byte array (multi-threaded by default).
-     *
-     * @param image    Input BufferedImage
-     * @param quality  Quality factor (0 to 100, ignored if lossless)
-     * @param lossless True for lossless compression, false for lossy
-     * @return WebP encoded byte array
-     * @throws IOException If encoding fails
      */
     public static byte[] encode(BufferedImage image, float quality, boolean lossless) throws IOException {
         return encode(image, quality, lossless, true);
@@ -82,11 +77,6 @@ public final class WebPEncoder {
 
     /**
      * Encodes a BufferedImage to a lossy WebP byte array.
-     *
-     * @param image   Input BufferedImage
-     * @param quality Quality factor (0 to 100)
-     * @return WebP encoded byte array
-     * @throws IOException If encoding fails
      */
     public static byte[] encode(BufferedImage image, float quality) throws IOException {
         return encode(image, quality, false, true);
@@ -94,10 +84,6 @@ public final class WebPEncoder {
 
     /**
      * Encodes a BufferedImage to a lossless WebP byte array.
-     *
-     * @param image Input BufferedImage
-     * @return WebP encoded byte array
-     * @throws IOException If encoding fails
      */
     public static byte[] encodeLossless(BufferedImage image) throws IOException {
         return encode(image, 0, true, true);
@@ -105,18 +91,81 @@ public final class WebPEncoder {
 
     /**
      * Encodes a BufferedImage directly to an OutputStream.
-     *
-     * @param image   Input BufferedImage
-     * @param quality Quality factor (0 to 100)
-     * @param out     Destination OutputStream
-     * @throws IOException If encoding or writing fails
      */
     public static void encode(BufferedImage image, float quality, OutputStream out) throws IOException {
         if (out == null) {
             throw new IllegalArgumentException("OutputStream cannot be null.");
         }
-        byte[] byteBuf = encode(image, quality, quality >= 100, true);
-        out.write(byteBuf);
+        out.write(encode(image, quality, quality >= 100, true));
+    }
+
+    /**
+     * Encodes a BufferedImage directly to an OutputStream with lossless control.
+     */
+    public static void encode(BufferedImage image, float quality, boolean lossless, OutputStream out) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null.");
+        }
+        out.write(encode(image, quality, lossless, true));
+    }
+
+    /**
+     * Encodes a BufferedImage directly to an OutputStream with multi-threaded control.
+     */
+    public static void encode(BufferedImage image, float quality, boolean lossless, boolean multiThreaded, OutputStream out) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null.");
+        }
+        out.write(encode(image, quality, lossless, multiThreaded));
+    }
+
+    /**
+     * Encodes a BufferedImage to lossless WebP directly to an OutputStream.
+     */
+    public static void encodeLossless(BufferedImage image, OutputStream out) throws IOException {
+        encode(image, 0, true, true, out);
+    }
+
+    /**
+     * Encodes a BufferedImage to a File.
+     */
+    public static void encode(BufferedImage image, File file, float quality) throws IOException {
+        Util.writeBytes(file, encode(image, quality));
+    }
+
+    /**
+     * Encodes a BufferedImage to a File with lossless control.
+     */
+    public static void encode(BufferedImage image, File file, float quality, boolean lossless) throws IOException {
+        Util.writeBytes(file, encode(image, quality, lossless));
+    }
+
+    /**
+     * Encodes a BufferedImage to a Path.
+     */
+    public static void encode(BufferedImage image, Path path, float quality) throws IOException {
+        Util.writeBytes(path, encode(image, quality));
+    }
+
+    /**
+     * Encodes a BufferedImage to a Path with lossless control.
+     */
+    public static void encode(BufferedImage image, Path path, float quality, boolean lossless) throws IOException {
+        Util.writeBytes(path, encode(image, quality, lossless));
+    }
+
+    /**
+     * Encodes a BufferedImage to a lossless WebP File.
+     */
+    public static void encodeLossless(BufferedImage image, File file) throws IOException {
+        Util.writeBytes(file, encodeLossless(image));
+    }
+
+    /**
+     * Encodes a BufferedImage to a lossless WebP Path.
+     */
+    public static void encodeLossless(BufferedImage image, Path path) throws IOException {
+        Util.writeBytes(path, encodeLossless(image));
     }
 
     /**
@@ -141,18 +190,14 @@ public final class WebPEncoder {
         int height = image.getHeight();
         boolean hasAlpha = image.getColorModel().hasAlpha();
 
-        // Encode raw pixels to WebP bitstream
         byte[] bitstream = encode(image, quality, lossless, true);
 
-        // If no metadata requested and format is simple, return standard WebP directly
         if (exif == null && iccp == null && xmp == null) {
             return bitstream;
         }
 
-        // Extract image bitstream chunk(s)
         Chunk[] imageChunks = ChunkFactory.getChunks(bitstream);
 
-        // Build container in Java
         int flags = (hasAlpha ? VP8XChunk.FLAG_ALPH : 0)
                 | (iccp != null ? VP8XChunk.FLAG_ICCP : 0)
                 | (exif != null ? VP8XChunk.FLAG_EXIF : 0)
@@ -179,5 +224,23 @@ public final class WebPEncoder {
         WebPChunk webpChunk = new WebPChunk(containerChunks.toArray(new Chunk[0]));
         webpChunk.write(baos);
         return baos.toByteArray();
+    }
+
+    public static void encodeWithMetadata(BufferedImage image, File file, float quality, boolean lossless,
+                                          byte[] exif, byte[] iccp, String xmp) throws IOException {
+        Util.writeBytes(file, encodeWithMetadata(image, quality, lossless, exif, iccp, xmp));
+    }
+
+    public static void encodeWithMetadata(BufferedImage image, Path path, float quality, boolean lossless,
+                                          byte[] exif, byte[] iccp, String xmp) throws IOException {
+        Util.writeBytes(path, encodeWithMetadata(image, quality, lossless, exif, iccp, xmp));
+    }
+
+    public static void encodeWithMetadata(BufferedImage image, OutputStream out, float quality, boolean lossless,
+                                          byte[] exif, byte[] iccp, String xmp) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null.");
+        }
+        out.write(encodeWithMetadata(image, quality, lossless, exif, iccp, xmp));
     }
 }

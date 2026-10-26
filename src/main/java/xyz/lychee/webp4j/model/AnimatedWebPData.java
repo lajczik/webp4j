@@ -38,6 +38,33 @@ public class AnimatedWebPData {
     }
 
     /**
+     * Retrieves the frame at the specified index.
+     *
+     * @param index Frame index (0 to frameCount - 1)
+     * @return The AnimatedWebPFrame at the given index
+     * @throws IndexOutOfBoundsException If index is out of range
+     * @throws IllegalStateException    If frames have not been decoded yet
+     */
+    public AnimatedWebPFrame getFrame(int index) {
+        if (frames == null) {
+            throw new IllegalStateException("No frames have been decoded yet");
+        }
+        return frames.get(index);
+    }
+
+    /**
+     * Returns total animation duration in milliseconds.
+     *
+     * @return Total duration in milliseconds, or 0 if empty
+     */
+    public int getTotalDuration() {
+        if (frames == null || frames.isEmpty()) {
+            return 0;
+        }
+        return frames.get(frames.size() - 1).getTimestamp();
+    }
+
+    /**
      * Computes per-frame delays from the cumulative timestamps.
      * <p>
      * The delay for each frame is calculated as the difference between

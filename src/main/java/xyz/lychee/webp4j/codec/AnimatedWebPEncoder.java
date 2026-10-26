@@ -5,13 +5,16 @@ import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
+import xyz.lychee.webp4j.utils.Util;
 import xyz.lychee.webp4j.codec.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.Flushable;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -219,6 +222,22 @@ public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
         Arrays.fill(delays, delay);
 
         return encode(frames, delays, config);
+    }
+
+    public static void encode(File file, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
+        Util.writeBytes(file, encode(frames, delays, config));
+    }
+
+    public static void encode(Path path, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
+        Util.writeBytes(path, encode(frames, delays, config));
+    }
+
+    public static void encode(File file, List<BufferedImage> frames, int delay, GifToWebPConfig config) throws IOException {
+        Util.writeBytes(file, encode(frames, delay, config));
+    }
+
+    public static void encode(Path path, List<BufferedImage> frames, int delay, GifToWebPConfig config) throws IOException {
+        Util.writeBytes(path, encode(frames, delay, config));
     }
 
     /**

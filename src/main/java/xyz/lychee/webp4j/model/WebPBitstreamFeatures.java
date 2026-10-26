@@ -5,7 +5,11 @@ import xyz.lychee.webp4j.utils.Util;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -41,6 +45,38 @@ public class WebPBitstreamFeatures {
      * Image format: 0 = undefined/mixed, 1 = lossy, 2 = lossless.
      */
     private int format;
+
+    /**
+     * Returns true if the image is encoded with lossless compression.
+     */
+    public boolean isLossless() {
+        return format == 2;
+    }
+
+    /**
+     * Returns true if the image is encoded with lossy compression.
+     */
+    public boolean isLossy() {
+        return format == 1;
+    }
+
+    /**
+     * Checks if the bitstream contains an alpha channel.
+     *
+     * @return true if alpha channel is present
+     */
+    public boolean hasAlpha() {
+        return hasAlpha;
+    }
+
+    /**
+     * Checks if the bitstream contains animation frames.
+     *
+     * @return true if animated
+     */
+    public boolean hasAnimation() {
+        return hasAnimation;
+    }
 
     /**
      * Parses WebP bitstream features directly from a WebP byte array using RIFF chunk inspection.
@@ -137,6 +173,34 @@ public class WebPBitstreamFeatures {
         // Fallback for complex/non-standard WebP files
         List<Chunk> chunks = ChunkFactory.parseAll(webPData);
         return fromChunks(chunks);
+    }
+
+    /**
+     * Parses WebP bitstream features from a File.
+     */
+    public static WebPBitstreamFeatures parse(File file) throws IOException {
+        return parse(Util.readFileBytes(file));
+    }
+
+    /**
+     * Parses WebP bitstream features from a Path.
+     */
+    public static WebPBitstreamFeatures parse(Path path) throws IOException {
+        return parse(Util.readFileBytes(path));
+    }
+
+    /**
+     * Parses WebP bitstream features from an InputStream.
+     */
+    public static WebPBitstreamFeatures parse(InputStream in) throws IOException {
+        return parse(Util.readAllBytes(in));
+    }
+
+    /**
+     * Parses WebP bitstream features from a ByteBuffer.
+     */
+    public static WebPBitstreamFeatures parse(ByteBuffer buffer) throws IOException {
+        return parse(Util.toByteArray(buffer));
     }
 
     /**

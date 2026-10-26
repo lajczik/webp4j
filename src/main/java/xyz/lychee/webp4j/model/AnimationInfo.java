@@ -3,14 +3,12 @@ package xyz.lychee.webp4j.model;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.Arrays;
+
 /**
- * Holds animation metadata extracted from GIF images.
+ * Holds animation metadata extracted from WebP or GIF containers without decoding pixel buffers.
  * <p>
- * This class provides information about a GIF image without performing
- * the full conversion. It's useful for determining whether a GIF is
- * animated, its dimensions, and other properties before conversion.
- * <p>
- * Instances of this class are populated by the native layer or GIF decoder.
+ * Instances of this class are populated by chunk inspection or native probing.
  */
 @Getter
 @Setter
@@ -21,25 +19,26 @@ public class AnimationInfo {
     private int height;
     private int loopCount;
     private boolean hasTransparency;
+    private int totalDuration;
+    private int[] delays;
 
     /**
      * Public constructor.
-     * Instances can be created by any code including WebPCodec, native code, or external packages.
      */
     public AnimationInfo() {
     }
 
     /**
-     * Checks if the GIF has transparency (transparent color index).
+     * Checks if the image has transparency (alpha channel or transparent color index).
      *
-     * @return true if the GIF has at least one transparent pixel
+     * @return true if image contains transparency
      */
     public boolean hasTransparency() {
         return hasTransparency;
     }
 
     /**
-     * Checks if the GIF is animated (has multiple frames).
+     * Checks if the image is animated (has multiple frames).
      *
      * @return true if frame count > 1
      */
@@ -55,6 +54,8 @@ public class AnimationInfo {
                 ", height=" + height +
                 ", loopCount=" + loopCount +
                 ", hasTransparency=" + hasTransparency +
+                ", totalDuration=" + totalDuration +
+                ", delays=" + Arrays.toString(delays) +
                 ", isAnimated=" + isAnimated() +
                 '}';
     }

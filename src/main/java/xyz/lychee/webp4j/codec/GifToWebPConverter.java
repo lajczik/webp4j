@@ -5,13 +5,18 @@ import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.GifDecoderJava;
 import xyz.lychee.webp4j.utils.PixelConverter;
+import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
 
 /**
  * Converter for transforming GIF images to WebP format.
@@ -66,6 +71,18 @@ public final class GifToWebPConverter {
         }
 
         return info;
+    }
+
+    public static AnimationInfo getInfo(File file) throws IOException {
+        return getInfo(Util.readFileBytes(file));
+    }
+
+    public static AnimationInfo getInfo(Path path) throws IOException {
+        return getInfo(Util.readFileBytes(path));
+    }
+
+    public static AnimationInfo getInfo(InputStream in) throws IOException {
+        return getInfo(Util.readAllBytes(in));
     }
 
     /**
@@ -146,6 +163,37 @@ public final class GifToWebPConverter {
      */
     public static byte[] convertLossless(byte[] gifData) throws IOException {
         return convert(gifData, GifToWebPConfig.createLosslessConfig());
+    }
+
+    public static byte[] convert(File gifFile, GifToWebPConfig config) throws IOException {
+        return convert(Util.readFileBytes(gifFile), config);
+    }
+
+    public static byte[] convert(Path gifPath, GifToWebPConfig config) throws IOException {
+        return convert(Util.readFileBytes(gifPath), config);
+    }
+
+    public static void convert(File gifFile, File webpFile) throws IOException {
+        convert(gifFile, webpFile, new GifToWebPConfig());
+    }
+
+    public static void convert(File gifFile, File webpFile, GifToWebPConfig config) throws IOException {
+        Util.writeBytes(webpFile, convert(gifFile, config));
+    }
+
+    public static void convert(Path gifPath, Path webpPath) throws IOException {
+        convert(gifPath, webpPath, new GifToWebPConfig());
+    }
+
+    public static void convert(Path gifPath, Path webpPath, GifToWebPConfig config) throws IOException {
+        Util.writeBytes(webpPath, convert(gifPath, config));
+    }
+
+    public static void convert(InputStream in, OutputStream out, GifToWebPConfig config) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null");
+        }
+        out.write(convert(Util.readAllBytes(in), config));
     }
 
     /**

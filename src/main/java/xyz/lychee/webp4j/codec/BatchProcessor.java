@@ -87,6 +87,20 @@ public final class BatchProcessor {
     }
 
     /**
+     * Encodes a list of images to lossy WebP in parallel using the shared internal pool.
+     */
+    public static List<byte[]> encodeImages(List<BufferedImage> images, float quality) throws IOException {
+        return encodeImages(images, quality, false, DefaultPool.INSTANCE);
+    }
+
+    /**
+     * Encodes a list of images to lossless WebP in parallel using the shared internal pool.
+     */
+    public static List<byte[]> encodeLosslessImages(List<BufferedImage> images) throws IOException {
+        return encodeImages(images, 0, true, DefaultPool.INSTANCE);
+    }
+
+    /**
      * Encodes a list of images to WebP in parallel using a caller-supplied executor.
      * <p>
      * The executor is not shut down by this method.

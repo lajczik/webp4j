@@ -1,10 +1,17 @@
 package xyz.lychee.webp4j.utils;
 
+import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -269,4 +276,93 @@ public final class Util {
         }
     }
 
+    /**
+     * Reads all bytes from an InputStream into a byte array.
+     *
+     * @param in Input stream to read from
+     * @return Byte array containing all read bytes
+     * @throws IOException If reading fails
+     */
+    public static byte[] readAllBytes(InputStream in) throws IOException {
+        Objects.requireNonNull(in, "InputStream cannot be null");
+        int initialSize = Math.max(16384, in.available());
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(initialSize);
+        byte[] chunk = new byte[16384];
+        int bytesRead;
+        while ((bytesRead = in.read(chunk, 0, chunk.length)) != -1) {
+            buffer.write(chunk, 0, bytesRead);
+        }
+        return buffer.toByteArray();
+    }
+
+    /**
+     * Reads all bytes from a File into a byte array.
+     *
+     * @param file File to read from
+     * @return Byte array containing all read bytes
+     * @throws IOException If file cannot be read
+     */
+    public static byte[] readFileBytes(File file) throws IOException {
+        Objects.requireNonNull(file, "File cannot be null");
+        return readFileBytes(file.toPath());
+    }
+
+    /**
+     * Reads all bytes from a Path into a byte array.
+     *
+     * @param path Path to read from
+     * @return Byte array containing all read bytes
+     * @throws IOException If path cannot be read
+     */
+    public static byte[] readFileBytes(Path path) throws IOException {
+        Objects.requireNonNull(path, "Path cannot be null");
+        return Files.readAllBytes(path);
+    }
+
+    /**
+     * Writes all bytes to a File.
+     *
+     * @param file Target file
+     * @param data Bytes to write
+     * @throws IOException If writing fails
+     */
+    public static void writeBytes(File file, byte[] data) throws IOException {
+        Objects.requireNonNull(file, "File cannot be null");
+        Objects.requireNonNull(data, "Data cannot be null");
+        writeBytes(file.toPath(), data);
+    }
+
+    /**
+     * Writes all bytes to a Path.
+     *
+     * @param path Target path
+     * @param data Bytes to write
+     * @throws IOException If writing fails
+     */
+    public static void writeBytes(Path path, byte[] data) throws IOException {
+        Objects.requireNonNull(path, "Path cannot be null");
+        Objects.requireNonNull(data, "Data cannot be null");
+        Files.write(path, data);
+    }
+
+    /**
+     * Extracts a byte array from a ByteBuffer.
+     * If the buffer is backed by an array and spans the entire array, returns the array directly.
+     * Otherwise, copies the remaining bytes from the buffer.
+     *
+     * @param buffer Byte buffer to extract from
+     * @return Byte array of remaining bytes in the buffer
+     */
+    public static byte[] toByteArray(ByteBuffer buffer) {
+        Objects.requireNonNull(buffer, "ByteBuffer cannot be null");
+        if (buffer.hasArray() && buffer.arrayOffset() == 0 && buffer.position() == 0
+                && buffer.remaining() == buffer.capacity()) {
+            return buffer.array();
+        }
+        byte[] bytes = new byte[buffer.remaining()];
+        int originalPos = buffer.position();
+        buffer.get(bytes);
+        buffer.position(originalPos);
+        return bytes;
+    }
 }

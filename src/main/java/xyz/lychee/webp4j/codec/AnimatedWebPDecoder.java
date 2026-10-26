@@ -9,15 +9,16 @@ import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Decoder for extracting individual frames from animated WebP images.
- * <p>
- * This class uses the libwebp WebPAnimDecoder API to decode animated WebP
- * images into individual frames as BufferedImage objects with their timestamps.
+ * Decoder for extracting individual frames and animation metadata from animated WebP images.
  *
  * @author MrNanko
  */
@@ -28,7 +29,7 @@ public final class AnimatedWebPDecoder {
     }
 
     /**
-     * Extracts animation metadata (dimensions, loop count, frame count, transparency)
+     * Extracts animation metadata (dimensions, loop count, frame count, delays, transparency)
      * by scanning RIFF WebP chunks directly without decoding any pixel rasters or copying payload buffers.
      *
      * @param webPData Byte array containing the animated WebP image data
@@ -45,9 +46,10 @@ public final class AnimatedWebPDecoder {
         }
 
         AnimationInfo info = new AnimationInfo();
-        int frameCount = 0;
+        List<Integer> delayList = new ArrayList<>();
         int offset = 12;
         int endOffset = webPData.length;
+        int totalDuration = 0;
 
         while (offset + 8 <= endOffset) {
             long size = Util.toUInt32(webPData, offset + 4);
@@ -67,23 +69,69 @@ public final class AnimatedWebPDecoder {
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'I' && c3 == 'M' && payloadLen >= 6) {
                 info.setLoopCount(Util.toUInt16(webPData, payloadOffset + 4));
             } else if (c0 == 'A' && c1 == 'N' && c2 == 'M' && c3 == 'F') {
-                frameCount++;
+                if (payloadLen >= 16) {
+                    int duration = Util.toUInt24(webPData, payloadOffset + 12);
+                    delayList.add(duration);
+                    totalDuration += duration;
+                } else {
+                    delayList.add(0);
+                }
             }
 
             int padding = Util.isOdd(size) ? 1 : 0;
             offset = payloadOffset + (int) size + padding;
         }
 
-        info.setFrameCount(frameCount);
+        info.setFrameCount(delayList.size());
+        info.setTotalDuration(totalDuration);
+        int[] delays = new int[delayList.size()];
+        for (int i = 0; i < delayList.size(); i++) {
+            delays[i] = delayList.get(i);
+        }
+        info.setDelays(delays);
         return info;
+    }
+
+    public static AnimationInfo getAnimationInfo(File file) throws IOException {
+        return getAnimationInfo(Util.readFileBytes(file));
+    }
+
+    public static AnimationInfo getAnimationInfo(Path path) throws IOException {
+        return getAnimationInfo(Util.readFileBytes(path));
+    }
+
+    public static AnimationInfo getAnimationInfo(InputStream in) throws IOException {
+        return getAnimationInfo(Util.readAllBytes(in));
+    }
+
+    public static AnimationInfo getAnimationInfo(ByteBuffer buffer) throws IOException {
+        return getAnimationInfo(Util.toByteArray(buffer));
+    }
+
+    /**
+     * Fast inspection of total frame count without full animation decoding.
+     *
+     * @param webPData WebP data
+     * @return Number of frames in animation, or 0 if not animated
+     */
+    public static int getFrameCount(byte[] webPData) {
+        try {
+            return getAnimationInfo(webPData).getFrameCount();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public static int getFrameCount(File file) {
+        try {
+            return getFrameCount(Util.readFileBytes(file));
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     /**
      * Decodes an animated WebP image into individual frames.
-     * <p>
-     * Each frame is a fully composited canvas-sized RGBA BufferedImage.
-     * The returned {@link AnimatedWebPData} contains all frames with their
-     * timestamps, as well as animation metadata (canvas size, loop count, etc.).
      *
      * @param webPData Byte array containing the animated WebP image data
      * @return AnimatedWebPData containing all decoded frames and metadata
@@ -95,10 +143,8 @@ public final class AnimatedWebPDecoder {
             throw new IllegalArgumentException("The input WebP data cannot be null or empty.");
         }
 
-        // Create result container for native layer to populate
         AnimatedWebPData result = new AnimatedWebPData();
 
-        // Decode using native WebPAnimDecoder
         boolean success = NativeWebP.decodeAnimated(webPData, result);
         if (!success) {
             throw new IOException("Failed to decode animated WebP image.");
@@ -114,20 +160,36 @@ public final class AnimatedWebPDecoder {
         int canvasWidth = result.getCanvasWidth();
         int canvasHeight = result.getCanvasHeight();
 
-        // Each BufferedImage wraps its frame's pixel array directly — no
-        // second per-frame buffer ever exists.
         List<AnimatedWebPFrame> frames = new ArrayList<>(framePixels.length);
+        int prevTimestamp = 0;
         for (int i = 0; i < framePixels.length; i++) {
             BufferedImage image = PixelConverter.wrapPixels(framePixels[i], canvasWidth, canvasHeight, true);
-            frames.add(new AnimatedWebPFrame(image, timestamps[i]));
+            int ts = timestamps[i];
+            int duration = ts - prevTimestamp;
+            prevTimestamp = ts;
+            frames.add(new AnimatedWebPFrame(image, ts, duration));
         }
 
-        // Drop the redundant references; the images now own the pixel arrays.
         result.setFramePixels(null);
         result.setTimestamps(null);
-
         result.setFrames(frames);
         return result;
+    }
+
+    public static AnimatedWebPData decode(File file) throws IOException {
+        return decode(Util.readFileBytes(file));
+    }
+
+    public static AnimatedWebPData decode(Path path) throws IOException {
+        return decode(Util.readFileBytes(path));
+    }
+
+    public static AnimatedWebPData decode(InputStream in) throws IOException {
+        return decode(Util.readAllBytes(in));
+    }
+
+    public static AnimatedWebPData decode(ByteBuffer buffer) throws IOException {
+        return decode(Util.toByteArray(buffer));
     }
 
     /**
@@ -135,8 +197,7 @@ public final class AnimatedWebPDecoder {
      *
      * @param webPData Byte array containing the animated WebP image data
      * @return List of decoded BufferedImage frames
-     * @throws IOException              If decoding fails
-     * @throws IllegalArgumentException If webPData is null or empty
+     * @throws IOException If decoding fails
      */
     public static List<BufferedImage> decodeImages(byte[] webPData) throws IOException {
         AnimatedWebPData data = decode(webPData);
@@ -146,5 +207,45 @@ public final class AnimatedWebPDecoder {
             images.add(frame.getImage());
         }
         return images;
+    }
+
+    public static List<BufferedImage> decodeImages(File file) throws IOException {
+        return decodeImages(Util.readFileBytes(file));
+    }
+
+    public static List<BufferedImage> decodeImages(Path path) throws IOException {
+        return decodeImages(Util.readFileBytes(path));
+    }
+
+    public static List<BufferedImage> decodeImages(InputStream in) throws IOException {
+        return decodeImages(Util.readAllBytes(in));
+    }
+
+    public static List<BufferedImage> decodeImages(ByteBuffer buffer) throws IOException {
+        return decodeImages(Util.toByteArray(buffer));
+    }
+
+    /**
+     * Decodes a specific frame by index from an animated WebP.
+     *
+     * @param webPData   WebP data
+     * @param frameIndex Zero-based frame index
+     * @return Decoded AnimatedWebPFrame
+     * @throws IOException If decoding fails or index is out of bounds
+     */
+    public static AnimatedWebPFrame decodeFrame(byte[] webPData, int frameIndex) throws IOException {
+        AnimatedWebPData data = decode(webPData);
+        if (data.getFrames() == null || frameIndex < 0 || frameIndex >= data.getFrames().size()) {
+            throw new IndexOutOfBoundsException("Frame index " + frameIndex + " out of bounds");
+        }
+        return data.getFrames().get(frameIndex);
+    }
+
+    public static AnimatedWebPFrame decodeFrame(File file, int frameIndex) throws IOException {
+        return decodeFrame(Util.readFileBytes(file), frameIndex);
+    }
+
+    public static AnimatedWebPFrame decodeFrame(Path path, int frameIndex) throws IOException {
+        return decodeFrame(Util.readFileBytes(path), frameIndex);
     }
 }

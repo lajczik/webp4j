@@ -44,7 +44,7 @@ public class NativeLibraryLoader {
                     String.format("Native library not found: %s%n" +
                                     "OS: %s, Architecture: %s%n" +
                                     "Expected path: %s%n" +
-                                    "Supported platforms: Linux (x64/aarch64), macOS (x64/arm64), Windows (x64/aarch64)",
+                                    "Supported platforms: Linux (x64/aarch64), macOS (x64/aarch64), Windows (x64/aarch64)",
                             libraryFileName, os, arch, resourcePath)
             );
         }
@@ -55,9 +55,7 @@ public class NativeLibraryLoader {
             final File fileToDelete = tempLibraryFile;
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 try {
-                    if (fileToDelete.exists()) {
-                        Files.delete(fileToDelete.toPath());
-                    }
+                    Files.deleteIfExists(fileToDelete.toPath());
                 } catch (Exception ignored) {
                 }
             }));

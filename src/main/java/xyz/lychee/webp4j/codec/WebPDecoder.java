@@ -9,10 +9,15 @@ import xyz.lychee.webp4j.model.VP8StatusCode;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
+import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -50,6 +55,77 @@ public final class WebPDecoder {
         }
 
         return PixelConverter.wrapPixels(pixels, width, height, hasAlpha);
+    }
+
+    /**
+     * Decodes a WebP image from a File.
+     */
+    public static BufferedImage decode(File file) throws IOException {
+        return decode(Util.readFileBytes(file));
+    }
+
+    /**
+     * Decodes a WebP image from a Path.
+     */
+    public static BufferedImage decode(Path path) throws IOException {
+        return decode(Util.readFileBytes(path));
+    }
+
+    /**
+     * Decodes a WebP image from an InputStream.
+     */
+    public static BufferedImage decode(InputStream in) throws IOException {
+        return decode(Util.readAllBytes(in));
+    }
+
+    /**
+     * Decodes a WebP image from a ByteBuffer.
+     */
+    public static BufferedImage decode(ByteBuffer buffer) throws IOException {
+        return decode(Util.toByteArray(buffer));
+    }
+
+    /**
+     * Decodes the first frame of a WebP file, whether it is a static WebP or an animated WebP.
+     * Ideal for generating thumbnails or preview rasters.
+     *
+     * @param webPData WebP image data
+     * @return First frame as a BufferedImage
+     * @throws IOException If decoding fails
+     */
+    public static BufferedImage decodeFirstFrame(byte[] webPData) throws IOException {
+        if (isAnimated(webPData)) {
+            return AnimatedWebPDecoder.decodeFrame(webPData, 0).getImage();
+        }
+        return decode(webPData);
+    }
+
+    /**
+     * Decodes the first frame of a WebP file from a File.
+     */
+    public static BufferedImage decodeFirstFrame(File file) throws IOException {
+        return decodeFirstFrame(Util.readFileBytes(file));
+    }
+
+    /**
+     * Decodes the first frame of a WebP file from a Path.
+     */
+    public static BufferedImage decodeFirstFrame(Path path) throws IOException {
+        return decodeFirstFrame(Util.readFileBytes(path));
+    }
+
+    /**
+     * Decodes the first frame of a WebP file from an InputStream.
+     */
+    public static BufferedImage decodeFirstFrame(InputStream in) throws IOException {
+        return decodeFirstFrame(Util.readAllBytes(in));
+    }
+
+    /**
+     * Decodes the first frame of a WebP file from a ByteBuffer.
+     */
+    public static BufferedImage decodeFirstFrame(ByteBuffer buffer) throws IOException {
+        return decodeFirstFrame(Util.toByteArray(buffer));
     }
 
     /**
@@ -96,6 +172,22 @@ public final class WebPDecoder {
         }
     }
 
+    public static int[] getInfo(File file) throws IOException {
+        return getInfo(Util.readFileBytes(file));
+    }
+
+    public static int[] getInfo(Path path) throws IOException {
+        return getInfo(Util.readFileBytes(path));
+    }
+
+    public static int[] getInfo(InputStream in) throws IOException {
+        return getInfo(Util.readAllBytes(in));
+    }
+
+    public static int[] getInfo(ByteBuffer buffer) throws IOException {
+        return getInfo(Util.toByteArray(buffer));
+    }
+
     /**
      * Retrieves bitstream features (dimensions, format, alpha, animation) of a WebP image.
      * Primary parsing is executed directly in Java from RIFF container chunks with zero JNI boundary overhead.
@@ -125,6 +217,22 @@ public final class WebPDecoder {
         }
     }
 
+    public static WebPBitstreamFeatures getBitstreamFeatures(File file) throws IOException {
+        return getBitstreamFeatures(Util.readFileBytes(file));
+    }
+
+    public static WebPBitstreamFeatures getBitstreamFeatures(Path path) throws IOException {
+        return getBitstreamFeatures(Util.readFileBytes(path));
+    }
+
+    public static WebPBitstreamFeatures getBitstreamFeatures(InputStream in) throws IOException {
+        return getBitstreamFeatures(Util.readAllBytes(in));
+    }
+
+    public static WebPBitstreamFeatures getBitstreamFeatures(ByteBuffer buffer) throws IOException {
+        return getBitstreamFeatures(Util.toByteArray(buffer));
+    }
+
     /**
      * Parses and returns all top-level RIFF chunks from a WebP image container.
      *
@@ -137,6 +245,18 @@ public final class WebPDecoder {
             throw new IllegalArgumentException("WebP data cannot be null or empty.");
         }
         return ChunkFactory.parseAll(webPData);
+    }
+
+    public static List<Chunk> getChunks(File file) throws IOException {
+        return getChunks(Util.readFileBytes(file));
+    }
+
+    public static List<Chunk> getChunks(Path path) throws IOException {
+        return getChunks(Util.readFileBytes(path));
+    }
+
+    public static List<Chunk> getChunks(InputStream in) throws IOException {
+        return getChunks(Util.readAllBytes(in));
     }
 
     /**
@@ -153,6 +273,38 @@ public final class WebPDecoder {
         try {
             WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
             return features.isHasAnimation();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean isAnimated(File file) {
+        try {
+            return isAnimated(Util.readFileBytes(file));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean isAnimated(Path path) {
+        try {
+            return isAnimated(Util.readFileBytes(path));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean isAnimated(InputStream in) {
+        try {
+            return isAnimated(Util.readAllBytes(in));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean isAnimated(ByteBuffer buffer) {
+        try {
+            return isAnimated(Util.toByteArray(buffer));
         } catch (Exception e) {
             return false;
         }
@@ -176,6 +328,14 @@ public final class WebPDecoder {
         return null;
     }
 
+    public static byte[] getExifMetadata(File file) {
+        try {
+            return getExifMetadata(Util.readFileBytes(file));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /**
      * Extracts raw ICC color profile bytes from a WebP image if present.
      *
@@ -192,6 +352,14 @@ public final class WebPDecoder {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    public static byte[] getIccProfile(File file) {
+        try {
+            return getIccProfile(Util.readFileBytes(file));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -211,5 +379,13 @@ public final class WebPDecoder {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    public static String getXmpMetadata(File file) {
+        try {
+            return getXmpMetadata(Util.readFileBytes(file));
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

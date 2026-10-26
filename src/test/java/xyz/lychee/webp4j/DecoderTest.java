@@ -171,16 +171,16 @@ public class DecoderTest {
 
     @Test
     void testWebPDecoderInputValidation() {
-        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.decode(null));
+        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.decode((byte[]) null));
         assertThrows(IllegalArgumentException.class, () -> WebPDecoder.decode(new byte[0]));
-        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getInfo(null));
+        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getInfo((byte[]) null));
         assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getInfo(new byte[5]));
-        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getBitstreamFeatures(null));
-        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getChunks(null));
-        assertFalse(WebPDecoder.isAnimated(null));
+        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getBitstreamFeatures((byte[]) null));
+        assertThrows(IllegalArgumentException.class, () -> WebPDecoder.getChunks((byte[]) null));
+        assertFalse(WebPDecoder.isAnimated((byte[]) null));
         assertFalse(WebPDecoder.isAnimated(new byte[10]));
-        assertNull(WebPDecoder.getExifMetadata(null));
-        assertNull(WebPDecoder.getIccProfile(null));
-        assertNull(WebPDecoder.getXmpMetadata(null));
+        assertNull(WebPDecoder.getExifMetadata((byte[]) null));
+        assertNull(WebPDecoder.getIccProfile((byte[]) null));
+        assertNull(WebPDecoder.getXmpMetadata((byte[]) null));
     }
 }
