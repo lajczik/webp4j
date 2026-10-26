@@ -3,11 +3,13 @@ package xyz.lychee.webp4j;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
 import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
 import xyz.lychee.webp4j.imageio.WebPImageIO;
 import xyz.lychee.webp4j.imageio.WebPImageReader;
 import xyz.lychee.webp4j.imageio.WebPImageWriteParam;
 import xyz.lychee.webp4j.imageio.WebPImageWriter;
+import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.WebPFrameFlag;
 
 import javax.imageio.IIOImage;
@@ -177,6 +179,85 @@ class ImageIOTest {
             assertEquals(30, frame1.getWidth());
         } finally {
             reader.dispose();
+        }
+    }
+
+    @Test
+    void testImageIOWriteSequenceAnimatedWebP() throws IOException {
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("webp").next();
+        assertTrue(writer.canWriteSequence(), "WebPImageWriter should support sequence writing");
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
+            writer.setOutput(ios);
+            writer.prepareWriteSequence(null);
+
+            WebPImageWriteParam param = (WebPImageWriteParam) writer.getDefaultWriteParam();
+            param.setLoopCount(3);
+            param.setBackgroundColor(0xFF00FF00);
+
+            // Frame 0: 40x40, 150ms delay
+            BufferedImage f1 = createTestImage(40, 40, false);
+            param.setDelay(150);
+            param.setFrameFlags(WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);
+            writer.writeToSequence(new IIOImage(f1, null, null), param);
+
+            // Frame 1: 40x40, 250ms delay
+            BufferedImage f2 = createTestImage(40, 40, true);
+            param.setDelay(250);
+            param.setFrameFlags(WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
+            writer.writeToSequence(new IIOImage(f2, null, null), param);
+
+            writer.endWriteSequence();
+        } finally {
+            writer.dispose();
+        }
+
+        byte[] animBytes = baos.toByteArray();
+        assertTrue(animBytes.length > 0);
+
+        // Verify with AnimatedWebPDecoder
+        AnimationInfo info = AnimatedWebPDecoder.getAnimationInfo(animBytes);
+        assertNotNull(info);
+        assertEquals(2, info.getFrameCount());
+        assertEquals(3, info.getLoopCount());
+        assertEquals(40, info.getWidth());
+        assertEquals(40, info.getHeight());
+        assertEquals(400, info.getTotalDuration());
+        assertArrayEquals(new int[]{150, 250}, info.getDelays());
+
+        // Verify with ImageIO reader reading the generated sequence
+        ImageReader reader = ImageIO.getImageReadersByFormatName("webp").next();
+        try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(animBytes))) {
+            reader.setInput(iis);
+            assertEquals(2, reader.getNumImages(true));
+            BufferedImage r0 = reader.read(0);
+            assertNotNull(r0);
+            assertEquals(40, r0.getWidth());
+            assertEquals(40, r0.getHeight());
+
+            BufferedImage r1 = reader.read(1);
+            assertNotNull(r1);
+            assertEquals(40, r1.getWidth());
+            assertEquals(40, r1.getHeight());
+        } finally {
+            reader.dispose();
+        }
+    }
+
+    @Test
+    void testImageIOWriteSequenceWithoutPrepareThrows() throws IOException {
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("webp").next();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
+            writer.setOutput(ios);
+            BufferedImage img = createTestImage(20, 20, false);
+
+            assertThrows(IllegalStateException.class, () ->
+                    writer.writeToSequence(new IIOImage(img, null, null), null));
+            assertThrows(IllegalStateException.class, writer::endWriteSequence);
+        } finally {
+            writer.dispose();
         }
     }
 }

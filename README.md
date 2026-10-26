@@ -290,6 +290,30 @@ try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("output_lo
 } finally {
     writer.dispose();
 }
+
+// 4. Creating Animated WebP via ImageIO Sequence Writing
+ImageWriter animWriter = ImageIO.getImageWritersByFormatName("webp").next();
+try (ImageOutputStream ios = ImageIO.createImageOutputStream(new File("animation.webp"))) {
+    animWriter.setOutput(ios);
+    animWriter.prepareWriteSequence(null);
+
+    WebPImageWriteParam param = (WebPImageWriteParam) animWriter.getDefaultWriteParam();
+    param.setLoopCount(0); // 0 = infinite loop
+
+    // Frame 1: 100ms display delay
+    param.setDelay(100);
+    param.setFrameFlags(WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);
+    animWriter.writeToSequence(new javax.imageio.IIOImage(frame1, null, null), param);
+
+    // Frame 2: 150ms display delay
+    param.setDelay(150);
+    param.setFrameFlags(WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
+    animWriter.writeToSequence(new javax.imageio.IIOImage(frame2, null, null), param);
+
+    animWriter.endWriteSequence();
+} finally {
+    animWriter.dispose();
+}
 ```
 
 ---
