@@ -129,4 +129,22 @@ public final class AnimatedWebPDecoder {
         result.setFrames(frames);
         return result;
     }
+
+    /**
+     * Decodes an animated WebP image and extracts all frames as a list of {@link BufferedImage} instances.
+     *
+     * @param webPData Byte array containing the animated WebP image data
+     * @return List of decoded BufferedImage frames
+     * @throws IOException              If decoding fails
+     * @throws IllegalArgumentException If webPData is null or empty
+     */
+    public static List<BufferedImage> decodeImages(byte[] webPData) throws IOException {
+        AnimatedWebPData data = decode(webPData);
+        List<AnimatedWebPFrame> frames = data.getFrames();
+        List<BufferedImage> images = new ArrayList<>(frames.size());
+        for (AnimatedWebPFrame frame : frames) {
+            images.add(frame.getImage());
+        }
+        return images;
+    }
 }

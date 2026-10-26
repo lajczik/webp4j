@@ -1,6 +1,8 @@
 package xyz.lychee.webp4j.batch;
 
 import xyz.lychee.webp4j.WebPCodec;
+import xyz.lychee.webp4j.utils.WebPDecoder;
+import xyz.lychee.webp4j.utils.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -111,7 +113,7 @@ public final class BatchProcessor {
         // multiThreaded=false: the batch already runs one image per pool thread,
         // so letting libwebp also multi-thread each encode would oversubscribe the CPU.
         return runBatch(executor, images.size(),
-                index -> WebPCodec.encodeImage(images.get(index), quality, lossless, false));
+                index -> WebPEncoder.encode(images.get(index), quality, lossless, false));
     }
 
     // ============================================
@@ -152,7 +154,7 @@ public final class BatchProcessor {
                 throw new IllegalArgumentException("Encoded image at index " + i + " is null");
             }
         }
-        return runBatch(executor, encodedImages.size(), index -> WebPCodec.decodeImage(encodedImages.get(index)));
+        return runBatch(executor, encodedImages.size(), index -> WebPDecoder.decode(encodedImages.get(index)));
     }
 
     // ============================================

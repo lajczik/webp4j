@@ -3,21 +3,19 @@ package xyz.lychee.webp4j;
 import xyz.lychee.webp4j.animation.AnimatedWebPDecoder;
 import xyz.lychee.webp4j.animation.AnimatedWebPEncoder;
 import xyz.lychee.webp4j.batch.BatchProcessor;
-import xyz.lychee.webp4j.chunks.*;
+import xyz.lychee.webp4j.chunks.Chunk;
 import xyz.lychee.webp4j.gif.GifToWebPConfig;
 import xyz.lychee.webp4j.gif.GifToWebPConverter;
 import xyz.lychee.webp4j.natives.NativeWebP;
-import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.model.AnimatedWebPData;
 import xyz.lychee.webp4j.model.AnimationInfo;
-import xyz.lychee.webp4j.model.VP8StatusCode;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
+import xyz.lychee.webp4j.utils.WebPDecoder;
 import xyz.lychee.webp4j.utils.WebPEncoder;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -130,24 +128,7 @@ public final class WebPCodec {
      * @throws IOException If there is an error processing the image
      */
     public static int[] getWebPInfo(byte[] webPData) throws IOException {
-        if (webPData == null || webPData.length < 12) {
-            throw new IllegalArgumentException("WebP data cannot be null or shorter than 12 bytes.");
-        }
-        try {
-            WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
-            return new int[]{features.getWidth(), features.getHeight()};
-        } catch (Exception e) {
-            try {
-                if (isAvailable()) {
-                    int[] dimensions = new int[2];
-                    if (NativeWebP.getInfo(webPData, dimensions)) {
-                        return dimensions;
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-            throw new IOException("Failed to retrieve WebP image information: " + e.getMessage(), e);
-        }
+        return WebPDecoder.getInfo(webPData);
     }
 
     /**
@@ -159,24 +140,7 @@ public final class WebPCodec {
      * @throws IOException If the data is invalid or cannot be parsed
      */
     public static WebPBitstreamFeatures getBitstreamFeatures(byte[] webPData) throws IOException {
-        if (webPData == null || webPData.length == 0) {
-            throw new IllegalArgumentException("WebP data cannot be null or empty.");
-        }
-        try {
-            return WebPBitstreamFeatures.parse(webPData);
-        } catch (Exception e) {
-            try {
-                if (isAvailable()) {
-                    WebPBitstreamFeatures features = new WebPBitstreamFeatures();
-                    int status = NativeWebP.getFeatures(webPData, webPData.length, features);
-                    if (VP8StatusCode.getStatusCode(status) == VP8StatusCode.VP8_STATUS_OK) {
-                        return features;
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-            throw new IOException("Failed to retrieve WebP bitstream features: " + e.getMessage(), e);
-        }
+        return WebPDecoder.getBitstreamFeatures(webPData);
     }
 
     /**
@@ -187,10 +151,7 @@ public final class WebPCodec {
      * @throws IOException If the container format is invalid
      */
     public static List<Chunk> getChunks(byte[] webPData) throws IOException {
-        if (webPData == null || webPData.length == 0) {
-            throw new IllegalArgumentException("WebP data cannot be null or empty.");
-        }
-        return ChunkFactory.parseAll(webPData);
+        return WebPDecoder.getChunks(webPData);
     }
 
     /**
@@ -201,15 +162,7 @@ public final class WebPCodec {
      * @return true if the image contains animation chunks or flags
      */
     public static boolean isAnimated(byte[] webPData) {
-        if (webPData == null || webPData.length < 16) {
-            return false;
-        }
-        try {
-            WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
-            return features.isHasAnimation();
-        } catch (Exception e) {
-            return false;
-        }
+        return WebPDecoder.isAnimated(webPData);
     }
 
     /**
@@ -219,15 +172,7 @@ public final class WebPCodec {
      * @return Raw EXIF payload, or null if not present
      */
     public static byte[] getExifMetadata(byte[] webPData) {
-        try {
-            for (Chunk c : getChunks(webPData)) {
-                if (c instanceof EXIFChunk) {
-                    return ((EXIFChunk) c).getRawData();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return WebPDecoder.getExifMetadata(webPData);
     }
 
     /**
@@ -237,15 +182,7 @@ public final class WebPCodec {
      * @return Raw ICC profile payload, or null if not present
      */
     public static byte[] getIccProfile(byte[] webPData) {
-        try {
-            for (Chunk c : getChunks(webPData)) {
-                if (c instanceof ICCPChunk) {
-                    return ((ICCPChunk) c).getRawData();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return WebPDecoder.getIccProfile(webPData);
     }
 
     /**
@@ -255,16 +192,7 @@ public final class WebPCodec {
      * @return XMP XML string, or null if not present
      */
     public static String getXmpMetadata(byte[] webPData) {
-        try {
-            for (Chunk c : getChunks(webPData)) {
-                if (c instanceof XMPChunk) {
-                    byte[] data = ((XMPChunk) c).getRawData();
-                    return new String(data, StandardCharsets.UTF_8);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return WebPDecoder.getXmpMetadata(webPData);
     }
 
     /**
@@ -332,23 +260,13 @@ public final class WebPCodec {
 
     /**
      * Decodes a WebP image (stored as a byte array) into an RGB/RGBA BufferedImage.
+     *
+     * @param webPData Byte array containing WebP image data
+     * @return Decoded BufferedImage
+     * @throws IOException If decoding fails
      */
     public static BufferedImage decodeImage(byte[] webPData) throws IOException {
-        if (webPData == null || webPData.length == 0) {
-            throw new IllegalArgumentException("The input WebP data cannot be null or empty.");
-        }
-
-        WebPBitstreamFeatures features = getBitstreamFeatures(webPData);
-        int width = features.getWidth();
-        int height = features.getHeight();
-        boolean hasAlpha = features.isHasAlpha();
-
-        int[] pixels = new int[width * height];
-        if (!NativeWebP.decodeInto(webPData, pixels, width * 4)) {
-            throw new IOException("Failed to decode WebP data.");
-        }
-
-        return PixelConverter.wrapPixels(pixels, width, height, hasAlpha);
+        return WebPDecoder.decode(webPData);
     }
 
     // ============================================
