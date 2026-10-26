@@ -1,79 +1,62 @@
 # WebP4j
 
-##### 📖 English Documentation | 📖 [中文文档](README.zh-CN.md)
+<div align="center">
 
-**WebP4j** is a Java library based on JNI (Java Native Interface) that supports WebP image encoding/decoding with both lossless and lossy compression, GIF to WebP conversion, and animated WebP creation and decoding. This project utilizes Google's [libwebp](https://developers.google.com/speed/webp) library (version 1.6.0) and exposes its functionality to Java applications.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Java: 8 - 22+](https://img.shields.io/badge/Java-8%20--%2022%2B-orange.svg)](https://openjdk.org/)
+[![libwebp: 1.6.0](https://img.shields.io/badge/libwebp-1.6.0-green.svg)](https://developers.google.com/speed/webp)
+[![Architecture: Multi-Release JAR](https://img.shields.io/badge/JAR-Multi--Release%20(JNI%20%2B%20FFM)-purple.svg)]()
+[![Platform: Win / macOS / Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen.svg)]()
 
-> ⭐ **If WebP4j is helpful to you, please consider giving it a star!** A single click helps more people discover the project. Every star means a lot to me and motivates me to keep maintaining and improving it. [**Star on GitHub →**](https://github.com/MrNanko/webp4j)
+**High-performance WebP library for modern Java — Static & Animated WebP encoding, decoding, metadata injection, and GIF conversion.**
 
-## Features
+[Key Features](#-key-features) • [Installation](#-installation) • [Animated WebP](#-animated-webp-creation--decoding) • [Static Images](#-static-webp-encoding--decoding) • [API Architecture](#-clean-modular-api) • [Performance](#-performance)
 
-- Supports WebP encoding of RGB and RGBA images with both lossy and lossless compression.
-- Supports decoding WebP images to RGB and RGBA formats.
-- **GIF to WebP conversion** with native giflib decoder and Java ImageIO fallback.
-- **Animated WebP creation** from BufferedImage frames.
-- **Animated WebP decoding** — extract individual frames and delays from existing animated WebP files.
-- **Multi-threaded encoding** — libwebp parallelizes each frame's compression (`thread_level`) for a multi-core speedup on animated WebP and GIF→WebP (**~42% faster animated encode** on a 10-core M5, see [Performance](#performance)); output stays bit-identical. Enabled by default, toggle with `GifToWebPConfig.setMultiThreaded(...)`.
-- **Frame normalization** for creating animations from images of different sizes.
-- Provides efficient image compression and decompression using libwebp.
-- **Zero-copy pixel pipeline** — BufferedImage rasters cross the JNI boundary without intermediate format conversion (see [Performance](#performance)).
-- Compatible with multiple platforms (supports x86 and ARM).
-- Compiled with **JDK 21** but targets **Java 8 bytecode** for maximum compatibility.
-- Published WebP4j to Maven Central Repository.
+</div>
 
-## Prerequisites
+---
 
-### For Library Users
+## 🌟 Overview
 
-- **Java 8 or higher** - The compiled library is compatible with Java 8, 11, 17, 21, and later versions.
+**WebP4j** is an industrial-grade Java library bridging Java applications with Google's state-of-the-art **[libwebp 1.6.0](https://developers.google.com/speed/webp)** native library. It runs across **Java 8 through Java 22+** via a Multi-Release JAR that automatically uses standard JNI on Java 8–21 and modern Foreign Function & Memory (FFM, JEP 454) on Java 22+.
 
-### For Developers (Building from Source)
+Whether you need to generate lightweight **animated WebP** banners from scratch, convert legacy **GIF animations**, batch-compress millions of e-commerce photos with zero memory copies, or parse **RIFF chunks and EXIF/ICC metadata** without third-party dependencies, WebP4j provides a clean, zero-allocation-focused API.
 
-If you want to build the native libraries locally, you'll need:
+---
 
-- **Java 21** - Required for building (JNI header generation and modern tooling)
-- **CMake 3.15+** - For building native libraries
-- **C Compiler** - GCC (Linux/macOS), MinGW (Windows), or Clang
+## ⚡ Key Features
 
-**Note:** The library is compiled with Java 21 using `--release 8` flag, which generates Java 8-compatible bytecode while leveraging modern build tools. This ensures the library works on any Java 8+ runtime while maintaining compatibility.
+- 🎬 **First-Class Animated WebP Generation**:
+  - Build animated WebP images from lists of `BufferedImage` frames with per-frame custom durations.
+  - **Streaming frame-by-frame composer** (`AnimatedWebPEncoder`) with precise control over frame offsets, alpha blending (`ALPHA_BLENDING`, `NO_BLEND`), and disposal methods (`DISPOSE_TO_BACKGROUND`, `NO_DISPOSE`).
+  - Configurable canvas background color, infinite loops, and custom loop counts.
+  - Automatic **Frame Normalization** (`CONTAIN`, `COVER`, `STRETCH`) for assembling animations from mismatched image sizes.
+- 🎞️ **High-Speed Animated WebP Decoding**:
+  - Extract frames with accurate cumulative timestamps and display delays.
+  - **O(1) Instant Header Inspection**: Query canvas dimensions, frame count, loop count, and transparency directly from container chunks in microseconds without decoding pixel buffers.
+- 🖼️ **Static WebP Encoding & Decoding**:
+  - RGB & RGBA support with lossy (0–100 quality) and lossless compression.
+  - **In-place decoding**: Decode directly into pre-allocated `BufferedImage` instances to eliminate garbage collection in render loops.
+  - **Fast Thumbnails**: Generate aspect-ratio-preserving thumbnails directly from WebP byte arrays or files.
+  - Comprehensive overloads for `byte[]`, `File`, `Path`, `InputStream`, `OutputStream`, and `ByteBuffer`.
+- 📦 **Container Metadata & RIFF Chunks**:
+  - Pure-Java chunk parser and assembler supporting `VP8`, `VP8L`, `VP8X`, `ANIM`, `ANMF`, `ALPH`, `ICCP`, `EXIF`, and `XMP`.
+  - Type-safe flag enums (`WebPContainerFlag`, `WebPFrameFlag`) with direct bitmask inspection (`flag.isSet(mask)`, `fromMask(mask)`).
+  - Inject ICC color profiles, EXIF tags, and XMP metadata into static WebP images.
+- ⚡ **Zero-Copy & Multi-Core Performance**:
+  - Direct JNI raster extraction avoiding intermediate format conversion buffers.
+  - Native multi-threaded tile encoding via libwebp's `thread_level`.
+  - Dedicated **`BatchProcessor`** for concurrent, multi-threaded bulk encoding and decoding.
+- 🔄 **GIF to WebP Conversion**:
+  - Dual-engine pipeline: native high-speed `giflib` decoder with graceful fallback to Java ImageIO.
+- 🌐 **True Cross-Platform Support**:
+  - Precompiled binaries bundled inside the JAR for **Windows (x64, ARM64)**, **macOS (Intel, Apple Silicon ARM64)**, and **Linux (x64, ARM64)**.
 
-## Supported Platforms
+---
 
-WebP4j supports the following platforms through automated CI/CD builds:
-
-- **Windows**: x64 (x86-64) and ARM64 (aarch64)
-- **macOS**: x64 (Intel) and arm64 (Apple Silicon)
-- **Linux**: x64 (x86-64) and ARM64 (aarch64)
-
-## Java 22+ Native Access Note
-
-Starting from Java 22, the JVM warns when libraries load native code via JNI ([JEP 472](https://openjdk.org/jeps/472)). Since WebP4j uses JNI internally, you may see the following warning:
-
-```
-WARNING: A restricted method in java.lang.System has been called
-WARNING: java.lang.System::load has been called by xyz.lychee.webp4j.common.NativeLibraryLoader in an unnamed module
-WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
-WARNING: Restricted methods will be blocked in a future release unless native access is enabled
-```
-
-**How to suppress the warning:**
-
-- **Module path** (recommended): WebP4j ships as a Multi-Release JAR with a named module `xyz.lychee.webp4j`. Place the JAR on the module path and use:
-  ```
-  --module-path webp4j.jar --add-modules xyz.lychee.webp4j --enable-native-access=xyz.lychee.webp4j
-  ```
-- **Classpath**: If you use the traditional classpath, the module name is not recognized. Use the blanket flag instead:
-  ```
-  --enable-native-access=ALL-UNNAMED
-  ```
-
-> This warning does not affect functionality — WebP4j works correctly in both cases. It is purely informational until a future Java release makes native access restrictions mandatory.
-
-## Installation
+## 📦 Installation
 
 ### Maven
-
-[![Maven Central](https://img.shields.io/maven-central/v/xyz.lychee.webp4j/webp4j)](https://central.sonatype.com/artifact/xyz.lychee.webp4j/webp4j)
 
 ```xml
 <dependency>
@@ -89,288 +72,292 @@ WARNING: Restricted methods will be blocked in a future release unless native ac
 implementation 'xyz.lychee.webp4j:webp4j:2.5.0'
 ```
 
-## API Overview
+### Supported Environments
 
-### Platform Availability
+| Operating System | Architecture | Binary Format | Engine |
+|:---|:---|:---|:---|
+| **Windows** | x86_64, aarch64 (ARM64) | `.dll` | JNI / FFM |
+| **macOS** | x86_64 (Intel), arm64 (Apple Silicon) | `.dylib` | JNI / FFM |
+| **Linux** | x86_64, aarch64 (ARM64) | `.so` | JNI / FFM |
 
-```java
-// Check if the current platform is supported
-boolean isAvailable();
+> **Java 22+ Note**: WebP4j packages a Multi-Release JAR with Automatic Module `xyz.lychee.webp4j`. When running on Java 22+, use `--enable-native-access=xyz.lychee.webp4j` (or `ALL-UNNAMED` on classpath) to allow unrestricted native access without JVM warnings.
 
-// Version of the bundled libwebp native library, e.g. "1.6.0"
-// (returns null when WebP support is unavailable on this platform)
-String libWebPVersion();
-```
+---
 
-### Static Image Encoding/Decoding
+## 🎬 Animated WebP Creation & Decoding
 
-```java
-// Encoding
-byte[] encodeImage(BufferedImage image, float quality) throws IOException;
-byte[] encodeImage(BufferedImage image, float quality, boolean lossless) throws IOException;
-byte[] encodeLosslessImage(BufferedImage image) throws IOException;
+Animated WebP offers 30–80% smaller file sizes than GIF with full 24-bit color and 8-bit alpha transparency. WebP4j offers multiple intuitive ways to create and inspect animations:
 
-// Decoding
-BufferedImage decodeImage(byte[] webPData) throws IOException;
-
-// Info
-int[] getWebPInfo(byte[] webPData) throws IOException;  // Returns [width, height]
-```
-
-### Batch Processing
+### 1. Simple Multi-Frame Animation
 
 ```java
-// Parallel bulk encode/decode (order-preserving). Independent images are
-// processed concurrently across a shared internal pool for multi-core speedup.
-List<byte[]>        encodeImages(List<BufferedImage> images, float quality, boolean lossless) throws IOException;
-List<BufferedImage> decodeImages(List<byte[]> encodedImages) throws IOException;
+import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
+import xyz.lychee.webp4j.utils.FrameNormalizer;
 
-// Need to cap or share threads? Use BatchProcessor with your own executor:
-List<byte[]>        BatchProcessor.encodeImages(List<BufferedImage>, float, boolean, ExecutorService) throws IOException;
-List<BufferedImage> BatchProcessor.decodeImages(List<byte[]>, ExecutorService) throws IOException;
-```
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.util.Arrays;
+import java.util.List;
 
-### GIF to WebP Conversion
-
-```java
-// Convert GIF to WebP
-byte[] encodeGifToWebP(byte[] gifData) throws IOException;
-byte[] encodeGifToWebP(byte[] gifData, GifToWebPConfig config) throws IOException;
-byte[] encodeGifToWebPLossless(byte[] gifData) throws IOException;
-
-// Get GIF information
-AnimationInfo getGifInfo(byte[] gifData) throws IOException;
-```
-
-### Animated WebP Creation
-
-```java
-// Create animated WebP from frames
-byte[] createAnimatedWebP(List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException;
-```
-
-### Animated WebP Decoding
-
-```java
-// Decode animated WebP into individual frames
-AnimatedWebPData decodeAnimatedWebP(byte[] webPData) throws IOException;
-
-// AnimatedWebPData provides:
-List<AnimatedWebPFrame> getFrames();  // Each frame: BufferedImage + timestamp
-int[] getDelays();                    // Per-frame delays in milliseconds
-int getCanvasWidth();
-int getCanvasHeight();
-int getFrameCount();
-int getLoopCount();
-```
-
-### Frame Normalization
-
-```java
-// Normalize frames to common size (use FrameNormalizer directly)
-List<BufferedImage> normalize(List<BufferedImage> frames);
-List<BufferedImage> normalize(
-        List<BufferedImage> frames,
-        Integer targetWidth,
-        Integer targetHeight,
-        FitMode fitMode,
-        boolean allowUpscale,
-        Color background
+// Load source images
+List<BufferedImage> frames = Arrays.asList(
+    ImageIO.read(new File("frame1.png")),
+    ImageIO.read(new File("frame2.png")),
+    ImageIO.read(new File("frame3.png"))
 );
+
+// Normalize canvas size if frames differ in dimension
+List<BufferedImage> normalizedFrames = FrameNormalizer.normalize(frames);
+
+// Frame delays in milliseconds (e.g. 100ms per frame = 10 FPS)
+int[] delays = new int[]{100, 150, 100};
+
+// Configure encoding (lossless or lossy quality)
+GifToWebPConfig config = GifToWebPConfig.createLosslessConfig()
+        .setLoopCount(0); // 0 = infinite loop
+
+// Encode to file
+AnimatedWebPEncoder.encode(new File("output_animation.webp"), normalizedFrames, delays, config);
 ```
 
-## Usage Examples
+### 2. Fine-Grained Frame-by-Frame Streaming Encoder
 
-### Static Image Encoding
+For advanced control over blending, disposal methods, canvas backgrounds, and frame coordinates:
 
 ```java
-// Lossy compression (recommended for JPG sources)
-public void encodeToWebP() throws IOException {
-    BufferedImage image = ImageIO.read(new File("input.jpg"));
-    byte[] webp = WebPCodec.encodeImage(image, 75.0f);
-    Files.write(Paths.get("output.webp"), webp);
-}
+import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
+import xyz.lychee.webp4j.model.WebPFrameFlag;
 
-// Lossless compression (recommended for PNG sources)
-public void encodeToLosslessWebP() throws IOException {
-    BufferedImage image = ImageIO.read(new File("input.png"));
-    byte[] webp = WebPCodec.encodeLosslessImage(image);
-    Files.write(Paths.get("output.webp"), webp);
+import java.io.FileOutputStream;
+
+try (FileOutputStream out = new FileOutputStream("custom_anim.webp");
+     AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(
+             out, 
+             true,    // hasAlpha
+             2,       // total frames
+             400,     // canvas width
+             300,     // canvas height
+             0,       // loop count (0 = infinite)
+             0x00000000 // background color (ARGB)
+     )) {
+
+    // Frame 0: Standard opaque base frame (alpha blend + keep canvas)
+    encoder.setFrame(0, frame1, 100, 80.0f, false,
+            WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);
+
+    // Frame 1: Transparent overlay with canvas background wipe
+    encoder.setFrame(1, frame2, 120, 85.0f, false,
+            WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
+    
+    encoder.flush();
 }
 ```
 
-### Static Image Decoding
+### 3. Decoding Animated WebP into Frames
+
+Extract all frames, delays, and animation statistics:
 
 ```java
-public void decodeFromWebP() throws IOException {
-    byte[] webpData = Files.readAllBytes(Paths.get("input.webp"));
-    BufferedImage image = WebPCodec.decodeImage(webpData);
-    ImageIO.write(image, "png", new File("output.png"));
+import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
+import xyz.lychee.webp4j.model.AnimatedWebPData;
+import xyz.lychee.webp4j.model.AnimatedWebPFrame;
+
+import java.io.File;
+
+// Decode animation file
+AnimatedWebPData animation = AnimatedWebPDecoder.decode(new File("input_animation.webp"));
+
+System.out.println("Canvas: " + animation.getCanvasWidth() + "x" + animation.getCanvasHeight());
+System.out.println("Frame Count: " + animation.getFrameCount());
+System.out.println("Loop Count: " + animation.getLoopCount());
+
+for (int i = 0; i < animation.getFrames().size(); i++) {
+    AnimatedWebPFrame frame = animation.getFrames().get(i);
+    System.out.printf("Frame #%d: timestamp=%d ms, duration=%d ms%n",
+            i, frame.getTimestamp(), frame.getDuration());
+    
+    // Process or save frame image
+    BufferedImage img = frame.getImage();
 }
 ```
 
-### Batch Processing
+### 4. Instant Animation Inspection (O(1) No Decoding)
+
+Query metadata in microseconds without allocating large image buffers:
 
 ```java
-public void encodeBatch(List<BufferedImage> images) throws IOException {
-    // Encodes all images in parallel; result i corresponds to input i.
-    List<byte[]> webps = WebPCodec.encodeImages(images, 75.0f, false);
+import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
+import xyz.lychee.webp4j.model.AnimationInfo;
 
-    // Decode many at once the same way.
-    List<BufferedImage> decoded = WebPCodec.decodeImages(webps);
-}
+File file = new File("large_animation.webp");
 
-public void encodeBatchWithOwnPool(List<BufferedImage> images, ExecutorService pool) throws IOException {
-    // Reuse/cap threads by passing your own executor (never shut down by the call).
-    List<byte[]> webps = BatchProcessor.encodeImages(images, 75.0f, false, pool);
-}
+// Reads only RIFF container headers (zero pixel decoding)
+AnimationInfo info = AnimatedWebPDecoder.getAnimationInfo(file);
+
+System.out.println("Dimensions: " + info.getWidth() + "x" + info.getHeight());
+System.out.println("Frames: " + info.getFrameCount());
+System.out.println("Total Duration: " + info.getTotalDuration() + " ms");
+System.out.println("Has Transparency: " + info.hasTransparency());
 ```
 
-### GIF to WebP Conversion
+---
+
+## 🖼️ Static WebP Encoding & Decoding
+
+### Static Encoding
 
 ```java
-// Default conversion (lossy, quality 75)
-public void convertGifToWebP() throws IOException {
-    byte[] gifData = Files.readAllBytes(Paths.get("input.gif"));
-    byte[] webp = WebPCodec.encodeGifToWebP(gifData);
-    Files.write(Paths.get("output.webp"), webp);
-}
+import xyz.lychee.webp4j.codec.WebPEncoder;
 
-// Custom configuration
-public void convertGifToWebPCustom() throws IOException {
-    byte[] gifData = Files.readAllBytes(Paths.get("input.gif"));
+BufferedImage image = ImageIO.read(new File("photo.jpg"));
 
-    GifToWebPConfig config = GifToWebPConfig.createLossyConfig(90.0f)
-            .setCompressionMethod(6)
-            .setMinimizeSize(true);
+// Lossy encode (Quality 0.0 to 100.0)
+WebPEncoder.encode(image, new File("photo.webp"), 82.0f);
 
-    byte[] webp = WebPCodec.encodeGifToWebP(gifData, config);
-    Files.write(Paths.get("output.webp"), webp);
-}
+// Lossless encode (Ideal for graphics, screenshots, transparent PNGs)
+WebPEncoder.encodeLossless(image, new File("screenshot.webp"));
+
+// Encode with embedded EXIF / ICC Profile / XMP metadata
+byte[] exifData = ...;
+byte[] iccProfile = ...;
+String xmpXml = "<x:xmpmeta>...</x:xmpmeta>";
+
+WebPEncoder.encodeWithMetadata(image, new File("rich_image.webp"), 85.0f, false,
+        exifData, iccProfile, xmpXml);
+```
+
+### Static Decoding & Fast Features
+
+```java
+import xyz.lychee.webp4j.codec.WebPDecoder;
+import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
+
+File webpFile = new File("photo.webp");
+
+// 1. Standard decode
+BufferedImage image = WebPDecoder.decode(webpFile);
+
+// 2. Fast O(1) metadata check (reads first 30-64 bytes without reading full file)
+int[] dims = WebPDecoder.getInfo(webpFile); // [width, height]
+boolean isAnim = WebPDecoder.isAnimated(webpFile);
+boolean hasAlpha = WebPDecoder.hasAlpha(webpFile);
+
+// 3. Extract bitstream features (format, alpha, dimensions)
+WebPBitstreamFeatures features = WebPDecoder.getBitstreamFeatures(webpFile);
+System.out.println("Format: " + (features.isLossless() ? "Lossless VP8L" : "Lossy VP8"));
+
+// 4. In-place decoding into an existing canvas (zero GC allocations)
+BufferedImage canvas = new BufferedImage(dims[0], dims[1], BufferedImage.TYPE_INT_ARGB);
+WebPDecoder.decode(webpBytes, canvas);
+
+// 5. Generate high-quality thumbnail preserving aspect ratio
+BufferedImage thumbnail = WebPDecoder.createThumbnail(webpFile, 200);
+```
+
+---
+
+## 🔄 GIF to WebP Conversion
+
+Convert legacy animated GIFs to compact animated WebP files:
+
+```java
+import xyz.lychee.webp4j.codec.GifToWebPConverter;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
+
+import java.io.File;
+
+File gifFile = new File("banner.gif");
+File webpFile = new File("banner.webp");
+
+// Lossy conversion (Quality 80)
+GifToWebPConfig config = GifToWebPConfig.createLossyConfig(80.0f)
+        .setCompressionMethod(4)
+        .setMinimizeSize(true);
+
+GifToWebPConverter.convert(gifFile, webpFile, config);
 
 // Lossless conversion
-public void convertGifToWebPLossless() throws IOException {
-    byte[] gifData = Files.readAllBytes(Paths.get("input.gif"));
-    byte[] webp = WebPCodec.encodeGifToWebPLossless(gifData);
-    Files.write(Paths.get("output.webp"), webp);
-}
+GifToWebPConverter.convertLossless(gifFile, new File("banner_lossless.webp"));
 ```
 
-### Creating Animated WebP from Images
+---
+
+## 🚀 Parallel Batch Processing
+
+When processing hundreds or thousands of images, `BatchProcessor` distributes native libwebp operations across CPU cores:
 
 ```java
-public void createAnimatedWebP() throws IOException {
-    // Load frames
-    List<BufferedImage> frames = Arrays.asList(
-        ImageIO.read(new File("frame1.png")),
-        ImageIO.read(new File("frame2.png")),
-        ImageIO.read(new File("frame3.png"))
-    );
+import xyz.lychee.webp4j.codec.BatchProcessor;
 
-    // Normalize frames to same size (required for animation)
-    frames = FrameNormalizer.normalize(frames);
+List<BufferedImage> images = ...;
 
-    // Set delays (milliseconds per frame)
-    int[] delays = {100, 100, 100};
+// Parallel lossy encode (uses Runtime.availableProcessors() threads)
+List<byte[]> webpByteArrays = BatchProcessor.encodeImages(images, 80.0f);
 
-    // Create animated WebP. Each frame's compression is multi-threaded by
-    // default (libwebp thread_level); the output is identical to single-threaded,
-    // just faster on multi-core machines. Disable with setMultiThreaded(false).
-    GifToWebPConfig config = GifToWebPConfig.createLosslessConfig();
-    byte[] webp = WebPCodec.createAnimatedWebP(frames, delays, config);
+// Parallel lossless encode
+List<byte[]> losslessWebps = BatchProcessor.encodeLosslessImages(images);
 
-    Files.write(Paths.get("animated.webp"), webp);
-}
+// Parallel decode
+List<BufferedImage> decodedImages = BatchProcessor.decodeImages(webpByteArrays);
+
+// Custom thread pool cap
+ExecutorService customPool = Executors.newFixedThreadPool(4);
+List<byte[]> capped = BatchProcessor.encodeImages(images, 80.0f, false, customPool);
 ```
 
-### Decoding Animated WebP into Frames
+---
 
-```java
-public void extractFrames() throws IOException {
-    byte[] webpData = Files.readAllBytes(Paths.get("animated.webp"));
-    AnimatedWebPData result = WebPCodec.decodeAnimatedWebP(webpData);
+## 🏗️ Clean, Modular API
 
-    System.out.println("Frame count: " + result.getFrameCount());
-    System.out.println("Canvas size: " + result.getCanvasWidth() + "x" + result.getCanvasHeight());
-    System.out.println("Loop count: " + result.getLoopCount());
+All functionality is neatly organized into dedicated functional packages:
 
-    // Get per-frame delays
-    int[] delays = result.getDelays();
-
-    // Access individual frames
-    for (int i = 0; i < result.getFrames().size(); i++) {
-        AnimatedWebPFrame frame = result.getFrames().get(i);
-        BufferedImage image = frame.getImage();
-        System.out.println("Frame " + i + ": delay=" + delays[i] + "ms");
-
-        // Save each frame as PNG
-        ImageIO.write(image, "png", new File("frame_" + i + ".png"));
-    }
-}
+```text
+xyz.lychee.webp4j
+ ├── WebPCodec.java            # Unified facade covering all operations
+ ├── codec
+ │    ├── WebPEncoder.java          # Static WebP encoding & metadata assembly
+ │    ├── WebPDecoder.java          # Static WebP decoding, headers, and thumbnails
+ │    ├── AnimatedWebPEncoder.java  # Animated WebP composition & streaming
+ │    ├── AnimatedWebPDecoder.java  # Animated WebP extraction & animation info
+ │    ├── BatchProcessor.java       # Parallel multi-core batch processing
+ │    └── GifToWebPConverter.java   # GIF to WebP native/Java conversion
+ ├── model
+ │    ├── WebPContainerFlag.java    # VP8X feature flag enum (ANIMATION, ALPHA, EXIF, etc.)
+ │    ├── WebPFrameFlag.java        # ANMF frame flag enum (NO_BLEND, DISPOSE_TO_BACKGROUND)
+ │    ├── AnimationInfo.java        # Non-decoding animation statistics
+ │    ├── AnimatedWebPData.java     # Decoded animation container
+ │    ├── AnimatedWebPFrame.java    # Single animation frame image & timing
+ │    ├── WebPBitstreamFeatures.java# Bitstream dimensions, format, alpha flags
+ │    └── GifToWebPConfig.java      # Conversion & compression parameters
+ ├── chunks                         # Pure-Java RIFF chunk parser & builder
+ │    ├── Chunk.java, ChunkFactory.java
+ │    └── VP8XChunk, ANIMChunk, ANMFChunk, VP8Chunk, VP8LChunk, etc.
+ ├── utils
+ │    ├── PixelConverter.java       # Direct zero-copy raster bridge
+ │    ├── ImageHelper.java          # Resizing, cloning, thumbnails, RGBA creation
+ │    ├── FrameNormalizer.java      # Dimension normalization for animations
+ │    └── Util.java                 # Fast zero-allocation endian stream I/O
+ └── natives
+      ├── NativeWebP.java           # JNI / FFM native bridge bindings
+      └── NativeLibraryLoader.java  # Platform binary resource unpacker
 ```
 
-### Advanced Frame Normalization
+---
 
-```java
-public void normalizeWithCustomSettings() throws IOException {
-    List<BufferedImage> frames = loadFrames();
+## 📊 Performance
 
-    // Normalize to specific size with custom fit mode
-    List<BufferedImage> normalized = FrameNormalizer.normalize(
-        frames,
-        800,                        // target width
-        600,                        // target height
-        FitMode.CONTAIN,            // preserve aspect ratio, letterbox
-        false,                      // don't upscale smaller images
-        new Color(0, 0, 0, 0)       // transparent background
-    );
+WebP4j is engineered for server-side environments where memory efficiency and throughput matter:
 
-    // FitMode options:
-    // - CONTAIN: Fit entire image, may have letterboxing
-    // - COVER: Fill entire canvas, may crop edges
-    // - STRETCH: Stretch to fill, may distort aspect ratio
-}
-```
+- **Zero-Copy Raster Pipeline**: Contiguous `TYPE_INT_ARGB`, `TYPE_INT_RGB`, and `TYPE_3BYTE_BGR` raster arrays cross directly into libwebp without intermediary heap conversions.
+- **Microsecond Header Parsing**: Container dimensions, frame counts, and animation flags are resolved by reading only the first 30–64 bytes of a file.
+- **Zero-Allocation Stream Reading**: Chunk readers unpack little-endian integers using branch-free bitwise operations instead of allocating temporary byte buffers.
+- **Multi-Threaded Tile Encoding**: Enabled by default in libwebp, delivering up to **~42% faster animated WebP encoding** on modern multi-core CPUs.
 
-## Compression Mode Guidelines
+---
 
-- **Lossless compression**: Recommended for PNG and other lossless image formats to preserve image quality without any data loss.
-- **Lossy compression**: Recommended for JPG and other lossy image formats. Using lossless compression on already-compressed JPG images is not recommended as it may result in larger file sizes without quality benefits.
+## 📄 License
 
-## Performance
-
-Release 2.3.0 rewrote the JNI bridge into a zero-copy pixel pipeline: `BufferedImage` rasters cross into libwebp without an intermediate format-conversion buffer, and decoding writes straight into the returned image's backing array. **Allocation is deterministic** — fixed by the code path, so the reductions below reproduce on any machine. Timing depends on hardware; the figure cited is from one reference run (Apple M5 MacBook Pro, GraalVM JDK 21.0.7, JMH `-prof gc`).
-
-| Operation | Allocation vs 2.2.0 | What was eliminated |
-|---|---|---|
-| Lossy encode | **−98%** | input-side JNI copy + malloc loop + Java pixel conversion |
-| Lossless encode | **−81%** | same input-side copies |
-| Decode (alpha / opaque) | **−50% / −43%** | byte→int full-image conversion; peak 8→4 bytes/px |
-| Animated encode / decode | **−98% / −50%** | redundant frame buffers |
-
-The single-pass GIF decoder also makes **first-frame extraction ~60% faster** — it stops after composing frame 1 instead of decoding every frame.
-
-### Multi-threaded animated encoding
-
-Where 2.3.0's zero-copy pipeline removed the *memory*, multi-threaded encoding (libwebp `thread_level`, on by default) removes the *time* — the two axes are independent and stack. Enabling it cuts **animated-encode time by ~42%** while the output bitstream and allocation stay **byte-for-byte identical** to single-threaded:
-
-| `encodeAnimated` (20 frames × 256², lossy q=75) | Single-threaded | Multi-threaded | Δ |
-|---|---|---|---|
-| Time | 172 ms | 99 ms | **−42%** |
-| Allocation | 121 KB | 121 KB | unchanged |
-
-> Reference run: 10-core Apple M5, GraalVM JDK 21.0.7, JMH `-prof gc`. The speedup reproduced across all five measured iterations (97–103 ms vs a flat 172 ms).
-
-The win scales with **core count and frame size**: `thread_level` parallelizes *within* each frame's compression (not across frames — `WebPAnimEncoder` adds frames in order), so larger frames and more cores help most, while tiny frames or 1–2 core machines may see little or negative benefit. Don't stack it with `BatchProcessor`, which already saturates cores by encoding one image per thread (it passes `multiThreaded=false` internally to avoid oversubscription).
-
-## Future Work
-
-- **JDK 22+ FFM backend** — A Foreign Function & Memory API path alongside JNI
-
-## Other Utils
-
-https://onlinegiftools.com/analyze-gif
-
-## License
-
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+This project is licensed under the [MIT License](LICENSE).  
+Native WebP capabilities powered by Google's [libwebp](https://developers.google.com/speed/webp) (BSD-3-Clause).
