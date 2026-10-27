@@ -82,6 +82,28 @@ public class NativeWebP {
                                        boolean multiThreaded);
 
     /**
+     * Encodes packed ARGB pixels with the full set of libwebp options (see
+     * {@link xyz.lychee.webp4j.model.WebPEncoderOptions}).
+     * <p>
+     * Added in 2.7.0: a native library built before that version does not export this entry point
+     * and the call fails with {@link UnsatisfiedLinkError}.
+     *
+     * @param pixels        Packed ARGB pixels, length must equal width * height
+     * @param quality       Quality (lossy) or compression effort (lossless), 0-100
+     * @param method        Speed/size trade-off, 0-6
+     * @param nearLossless  Near-lossless preprocessing level, 100 = off
+     * @param exact         Preserve RGB of fully transparent pixels
+     * @param alphaQuality  Alpha channel quality for lossy images, 0-100
+     * @param sharpYuv      Use sharp RGB to YUV conversion
+     * @param targetSize    Target output size in bytes, 0 = off
+     * @return WebP encoded bytes, or null on failure
+     */
+    public static native byte[] encodeAdvanced(int[] pixels, int width, int height, boolean hasAlpha,
+                                               float quality, boolean lossless, int method,
+                                               int nearLossless, boolean exact, int alphaQuality,
+                                               boolean sharpYuv, int targetSize, boolean multiThreaded);
+
+    /**
      * Encodes interleaved BGR bytes (a TYPE_3BYTE_BGR backing array, length
      * width * height * 3) to a WebP bitstream via WebPPictureImportBGR.
      *

@@ -9,14 +9,25 @@ import java.io.File;
 import java.lang.foreign.*;
 import java.lang.invoke.MethodHandle;
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Foreign Function &amp; Memory (FFM) API implementation for Java 22+.
  * <p>
  * Replaces legacy JNI with type-safe, direct downcalls via {@link Linker}
- * and off-heap/pinned memory accesses via {@link MemorySegment}.
+ * and off-heap memory accesses via {@link MemorySegment}.
+ * <p>
+ * Failure policy: methods keep the contract of the JNI binding (a {@code null} result or
+ * {@code false} signals failure), but the cause is always logged, and fatal JVM errors
+ * ({@link VirtualMachineError}) are never swallowed.
  */
 public final class FFMWebP {
+
+    private static final Logger LOG = Logger.getLogger(FFMWebP.class.getName());
+
+    /** VP8_STATUS_INVALID_PARAM */
+    private static final int STATUS_INVALID_PARAM = 2;
 
     private static final Throwable UNAVAILABILITY_CAUSE;
     private static final int VERSION;
@@ -25,6 +36,7 @@ public final class FFMWebP {
     private static final MethodHandle MH_GET_INFO;
     private static final MethodHandle MH_GET_FEATURES;
     private static final MethodHandle MH_ENCODE;
+    private static final MethodHandle MH_ENCODE_ADVANCED;
     private static final MethodHandle MH_ENCODE_BGR;
     private static final MethodHandle MH_ENCODE_BGRA_LIBWEBP;
     private static final MethodHandle MH_ENCODE_LOSSLESS_BGRA_LIBWEBP;
@@ -57,6 +69,31 @@ public final class FFMWebP {
         return UNAVAILABILITY_CAUSE;
     }
 
+    /** True when the loaded native library exports the extended encoder (added in 2.7.0). */
+    public static boolean isAdvancedEncodeSupported() {
+        return MH_ENCODE_ADVANCED != null && MH_FREE != null;
+    }
+
+    /** Logs a failed native operation; fatal VM errors (such as OutOfMemoryError) are rethrown. */
+    private static void failed(String operation, Throwable t) {
+        if (t instanceof VirtualMachineError) {
+            throw (VirtualMachineError) t;
+        }
+        LOG.log(Level.WARNING, "webp4j FFM operation failed: " + operation, t);
+    }
+
+    /** Copies a native result buffer into a Java array and releases it. */
+    private static byte[] takeResult(MemorySegment outPtrPtr, long size, MethodHandle free) throws Throwable {
+        MemorySegment outPtr = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
+        try {
+            return outPtr.toArray(ValueLayout.JAVA_BYTE);
+        } finally {
+            if (free != null) {
+                free.invokeExact(outPtr);
+            }
+        }
+    }
+
     public static boolean getInfo(byte[] data, int[] dimensions) {
         if (data == null || dimensions == null || dimensions.length < 2) {
             return false;
@@ -74,25 +111,28 @@ public final class FFMWebP {
                     dimensions[1] = hPtr.get(ValueLayout.JAVA_INT, 0);
                     return true;
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                failed("getInfo", t);
             }
         }
 
         // Pure Java chunk parse fallback
         try {
             WebPBitstreamFeatures feat = WebPBitstreamFeatures.parse(data);
-            if (feat != null && feat.getWidth() > 0 && feat.getHeight() > 0) {
+            if (feat.getWidth() > 0 && feat.getHeight() > 0) {
                 dimensions[0] = feat.getWidth();
                 dimensions[1] = feat.getHeight();
                 return true;
             }
-        } catch (Throwable ignored) {
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Java header parse failed", e);
         }
         return false;
     }
 
     public static int getFeatures(byte[] data, int dataSize, WebPBitstreamFeatures features) {
         if (data == null || features == null) return -1;
+        if (dataSize < 0 || dataSize > data.length) return STATUS_INVALID_PARAM;
 
         if (MH_GET_FEATURES != null) {
             try (Arena arena = Arena.ofConfined()) {
@@ -114,22 +154,22 @@ public final class FFMWebP {
                     features.setFormat(fmtPtr.get(ValueLayout.JAVA_INT, 0));
                     return 0;
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                failed("getFeatures", t);
             }
         }
 
         // Pure Java chunk parse fallback
         try {
             WebPBitstreamFeatures parsed = WebPBitstreamFeatures.parse(data);
-            if (parsed != null) {
-                features.setWidth(parsed.getWidth());
-                features.setHeight(parsed.getHeight());
-                features.setHasAlpha(parsed.isHasAlpha());
-                features.setHasAnimation(parsed.isHasAnimation());
-                features.setFormat(parsed.getFormat());
-                return 0;
-            }
-        } catch (Throwable ignored) {
+            features.setWidth(parsed.getWidth());
+            features.setHeight(parsed.getHeight());
+            features.setHasAlpha(parsed.isHasAlpha());
+            features.setHasAnimation(parsed.isHasAnimation());
+            features.setFormat(parsed.getFormat());
+            return 0;
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Java feature parse failed", e);
         }
         return -1;
     }
@@ -137,7 +177,7 @@ public final class FFMWebP {
     public static byte[] encode(int[] pixels, int width, int height,
                                 float quality, boolean lossless, boolean hasAlpha,
                                 boolean multiThreaded) {
-        if (pixels == null || width <= 0 || height <= 0 || pixels.length != width * height) {
+        if (pixels == null || width <= 0 || height <= 0 || pixels.length != (long) width * height) {
             return null;
         }
 
@@ -152,12 +192,9 @@ public final class FFMWebP {
                         outPtrPtr
                 );
 
-                if (size <= 0) return null;
-                MemorySegment outPtr = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
-                byte[] res = outPtr.toArray(ValueLayout.JAVA_BYTE);
-                MH_FREE.invokeExact(outPtr);
-                return res;
+                return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE);
             } catch (Throwable t) {
+                failed("encode", t);
                 return null;
             }
         }
@@ -176,14 +213,9 @@ public final class FFMWebP {
                             pixelSeg, width, height, width * 4, quality, outPtrPtr
                     );
                 }
-                if (size <= 0) return null;
-                MemorySegment outPtr = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
-                byte[] res = outPtr.toArray(ValueLayout.JAVA_BYTE);
-                if (MH_FREE != null) {
-                    MH_FREE.invokeExact(outPtr);
-                }
-                return res;
+                return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE);
             } catch (Throwable t) {
+                failed("encode (libwebp)", t);
                 return null;
             }
         }
@@ -191,9 +223,43 @@ public final class FFMWebP {
         return null;
     }
 
+    /**
+     * Extended encoder with the full set of libwebp options.
+     *
+     * @throws UnsupportedOperationException if the native library predates the extended encoder
+     */
+    public static byte[] encodeAdvanced(int[] pixels, int width, int height, boolean hasAlpha,
+                                        float quality, boolean lossless, int method,
+                                        int nearLossless, boolean exact, int alphaQuality,
+                                        boolean sharpYuv, int targetSize, boolean multiThreaded) {
+        if (!isAdvancedEncodeSupported()) {
+            throw new UnsupportedOperationException(
+                    "The native library does not export webp4j_ffm_encode_advanced; rebuild the natives");
+        }
+        if (pixels == null || width <= 0 || height <= 0 || pixels.length != (long) width * height) {
+            return null;
+        }
+
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment pixelSeg = arena.allocateFrom(ValueLayout.JAVA_INT, pixels);
+            MemorySegment outPtrPtr = arena.allocate(ValueLayout.ADDRESS);
+
+            long size = (long) MH_ENCODE_ADVANCED.invokeExact(
+                    pixelSeg, width, height, hasAlpha ? 1 : 0,
+                    quality, lossless ? 1 : 0, method, nearLossless, exact ? 1 : 0,
+                    alphaQuality, sharpYuv ? 1 : 0, targetSize, multiThreaded ? 1 : 0,
+                    outPtrPtr
+            );
+            return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE);
+        } catch (Throwable t) {
+            failed("encodeAdvanced", t);
+            return null;
+        }
+    }
+
     public static byte[] encodeBgr(byte[] pixels, int width, int height,
                                    float quality, boolean lossless, boolean multiThreaded) {
-        if (pixels == null || width <= 0 || height <= 0 || pixels.length != width * height * 3) {
+        if (pixels == null || width <= 0 || height <= 0 || pixels.length != (long) width * height * 3) {
             return null;
         }
 
@@ -208,12 +274,9 @@ public final class FFMWebP {
                         outPtrPtr
                 );
 
-                if (size <= 0) return null;
-                MemorySegment outPtr = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
-                byte[] res = outPtr.toArray(ValueLayout.JAVA_BYTE);
-                MH_FREE.invokeExact(outPtr);
-                return res;
+                return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE);
             } catch (Throwable t) {
+                failed("encodeBgr", t);
                 return null;
             }
         }
@@ -232,14 +295,9 @@ public final class FFMWebP {
                             pixelSeg, width, height, width * 3, quality, outPtrPtr
                     );
                 }
-                if (size <= 0) return null;
-                MemorySegment outPtr = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
-                byte[] res = outPtr.toArray(ValueLayout.JAVA_BYTE);
-                if (MH_FREE != null) {
-                    MH_FREE.invokeExact(outPtr);
-                }
-                return res;
+                return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE);
             } catch (Throwable t) {
+                failed("encodeBgr (libwebp)", t);
                 return null;
             }
         }
@@ -248,7 +306,7 @@ public final class FFMWebP {
     }
 
     public static boolean decodeInto(byte[] data, int[] output, int outputStride) {
-        if (data == null || output == null || MH_DECODE_INTO == null) {
+        if (data == null || output == null || outputStride <= 0 || MH_DECODE_INTO == null) {
             return false;
         }
 
@@ -270,6 +328,7 @@ public final class FFMWebP {
             }
             return false;
         } catch (Throwable t) {
+            failed("decodeInto", t);
             return false;
         }
     }
@@ -281,6 +340,12 @@ public final class FFMWebP {
         if (frames == null || delays == null || width <= 0 || height <= 0 ||
                 frames.length == 0 || delays.length < frames.length) {
             return null;
+        }
+        long expected = (long) width * height;
+        for (int[] frame : frames) {
+            if (frame == null || frame.length != expected) {
+                return null;
+            }
         }
 
         if (MH_ENCODE_ANIMATED != null && MH_FREE_ANIMATED != null) {
@@ -300,12 +365,9 @@ public final class FFMWebP {
                         outPtrPtr
                 );
 
-                if (size <= 0) return null;
-                MemorySegment outPtr = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
-                byte[] res = outPtr.toArray(ValueLayout.JAVA_BYTE);
-                MH_FREE_ANIMATED.invokeExact(outPtr);
-                return res;
+                return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE_ANIMATED);
             } catch (Throwable t) {
+                failed("encodeAnimated", t);
                 return null;
             }
         }
@@ -338,16 +400,19 @@ public final class FFMWebP {
                     int loop = loopPtr.get(ValueLayout.JAVA_INT, 0);
                     int bg = bgPtr.get(ValueLayout.JAVA_INT, 0);
                     int fc = fcPtr.get(ValueLayout.JAVA_INT, 0);
-                    if (fc <= 0 || cw <= 0 || ch <= 0) {
+                    long framePixelsLong = (long) cw * ch;
+                    if (fc <= 0 || cw <= 0 || ch <= 0 || framePixelsLong > Integer.MAX_VALUE - 8) {
                         return false;
                     }
 
-                    int framePixels = cw * ch;
-                    long frameBytes = (long) framePixels * 4L;
+                    int framePixels = (int) framePixelsLong;
+                    long frameBytes = framePixelsLong * 4L;
                     MemorySegment frameBuf = arena.allocate(frameBytes);
                     MemorySegment tsPtr = arena.allocate(ValueLayout.JAVA_INT);
 
-                    int[][] frames = new int[fc][framePixels];
+                    // Frames are allocated one at a time, so a hostile frame count fails at the
+                    // first frame the decoder cannot produce instead of reserving everything upfront.
+                    int[][] frames = new int[fc][];
                     int[] timestamps = new int[fc];
 
                     for (int i = 0; i < fc; i++) {
@@ -355,6 +420,7 @@ public final class FFMWebP {
                         if (ok == 0) {
                             return false;
                         }
+                        frames[i] = new int[framePixels];
                         MemorySegment.copy(frameBuf, ValueLayout.JAVA_INT, 0, frames[i], 0, framePixels);
                         timestamps[i] = tsPtr.get(ValueLayout.JAVA_INT, 0);
                     }
@@ -371,6 +437,7 @@ public final class FFMWebP {
                     MH_ANIM_DEC_DELETE.invokeExact(dec);
                 }
             } catch (Throwable t) {
+                failed("decodeAnimated (streaming)", t);
                 return false;
             }
         }
@@ -406,9 +473,10 @@ public final class FFMWebP {
                     MemorySegment tsSeg = rawTsSeg.reinterpret((long) fc * 4L);
 
                     int framePixels = cw * ch;
-                    int[][] frames = new int[fc][framePixels];
+                    int[][] frames = new int[fc][];
                     for (int i = 0; i < fc; i++) {
                         MemorySegment slice = allPixelsSeg.asSlice((long) i * framePixels * 4L, (long) framePixels * 4L);
+                        frames[i] = new int[framePixels];
                         MemorySegment.copy(slice, ValueLayout.JAVA_INT, 0, frames[i], 0, framePixels);
                     }
 
@@ -434,6 +502,7 @@ public final class FFMWebP {
                     }
                 }
             } catch (Throwable t) {
+                failed("decodeAnimated (batch)", t);
                 return false;
             }
         }
@@ -463,6 +532,7 @@ public final class FFMWebP {
             info.setHasTransparency(transPtr.get(ValueLayout.JAVA_INT, 0) != 0);
             return true;
         } catch (Throwable t) {
+            failed("getGifInfo", t);
             return false;
         }
     }
@@ -482,14 +552,9 @@ public final class FFMWebP {
                     minimizeSize ? 1 : 0, allowMixed ? 1 : 0, multiThreaded ? 1 : 0,
                     outPtrPtr
             );
-            if (size <= 0) return null;
-            MemorySegment outSeg = outPtrPtr.get(ValueLayout.ADDRESS, 0).reinterpret(size);
-            byte[] res = outSeg.toArray(ValueLayout.JAVA_BYTE);
-            if (MH_FREE != null) {
-                MH_FREE.invokeExact(outSeg);
-            }
-            return res;
+            return size <= 0 ? null : takeResult(outPtrPtr, size, MH_FREE);
         } catch (Throwable t) {
+            failed("encodeGifToWebP", t);
             return null;
         }
     }
@@ -501,7 +566,8 @@ public final class FFMWebP {
             if (symbol.isPresent()) {
                 return Optional.of(linker.downcallHandle(symbol.get(), descriptor));
             }
-        } catch (Throwable ignored) {
+        } catch (RuntimeException e) {
+            LOG.log(Level.FINE, "Could not bind native symbol " + symbolName, e);
         }
         return Optional.empty();
     }
@@ -514,6 +580,7 @@ public final class FFMWebP {
         MethodHandle mhGetInfo = null;
         MethodHandle mhGetFeatures = null;
         MethodHandle mhEncode = null;
+        MethodHandle mhEncodeAdvanced = null;
         MethodHandle mhEncodeBgr = null;
         MethodHandle mhEncodeBgraLib = null;
         MethodHandle mhEncodeLosslessBgraLib = null;
@@ -539,7 +606,8 @@ public final class FFMWebP {
             if (libFile != null) {
                 try {
                     libLookup = SymbolLookup.libraryLookup(libFile.toPath(), Arena.global());
-                } catch (Throwable ignored) {
+                } catch (RuntimeException e) {
+                    LOG.log(Level.FINE, "libraryLookup failed, using the loader lookup", e);
                 }
             }
             SymbolLookup loaderLookup = SymbolLookup.loaderLookup();
@@ -583,6 +651,14 @@ public final class FFMWebP {
             mhEncode = findHandle(linker, lookup, "webp4j_ffm_encode",
                     FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
                             ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
+                    .orElse(null);
+
+            // Extended encoder (2.7.0+); absent in older native builds
+            mhEncodeAdvanced = findHandle(linker, lookup, "webp4j_ffm_encode_advanced",
+                    FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
                     .orElse(null);
 
             mhEncodeBgr = findHandle(linker, lookup, "webp4j_ffm_encode_bgr",
@@ -676,6 +752,9 @@ public final class FFMWebP {
                     .orElse(null);
 
         } catch (Throwable t) {
+            if (t instanceof VirtualMachineError) {
+                throw (VirtualMachineError) t;
+            }
             cause = t;
             version = 0;
         }
@@ -687,6 +766,7 @@ public final class FFMWebP {
         MH_GET_INFO = mhGetInfo;
         MH_GET_FEATURES = mhGetFeatures;
         MH_ENCODE = mhEncode;
+        MH_ENCODE_ADVANCED = mhEncodeAdvanced;
         MH_ENCODE_BGR = mhEncodeBgr;
         MH_ENCODE_BGRA_LIBWEBP = mhEncodeBgraLib;
         MH_ENCODE_LOSSLESS_BGRA_LIBWEBP = mhEncodeLosslessBgraLib;

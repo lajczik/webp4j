@@ -58,6 +58,14 @@ public class NativeWebP {
         return FFMWebP.encode(pixels, width, height, quality, lossless, hasAlpha, multiThreaded);
     }
 
+    public static byte[] encodeAdvanced(int[] pixels, int width, int height, boolean hasAlpha,
+                                        float quality, boolean lossless, int method,
+                                        int nearLossless, boolean exact, int alphaQuality,
+                                        boolean sharpYuv, int targetSize, boolean multiThreaded) {
+        return FFMWebP.encodeAdvanced(pixels, width, height, hasAlpha, quality, lossless, method,
+                nearLossless, exact, alphaQuality, sharpYuv, targetSize, multiThreaded);
+    }
+
     public static byte[] encodeBgr(byte[] pixels, int width, int height,
                                    float quality, boolean lossless, boolean multiThreaded) {
         return FFMWebP.encodeBgr(pixels, width, height, quality, lossless, multiThreaded);
