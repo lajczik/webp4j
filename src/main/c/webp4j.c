@@ -499,6 +499,9 @@ JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getLibWebPVersi
 JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getInfo
   (JNIEnv *env, jclass clazz, jbyteArray data, jintArray dimensions) {
     (void)clazz;
+    if (data == NULL || dimensions == NULL) {
+        return JNI_FALSE;
+    }
     jsize data_size = (*env)->GetArrayLength(env, data);
     if ((*env)->GetArrayLength(env, dimensions) < 2) {
         return JNI_FALSE;
@@ -529,6 +532,9 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getInfo
 JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getFeatures
   (JNIEnv *env, jclass clazz, jbyteArray data, jint dataSize, jobject featuresObj) {
     (void)clazz;
+    if (data == NULL || featuresObj == NULL) {
+        return VP8_STATUS_INVALID_PARAM;
+    }
     if (dataSize < 0 || dataSize > (*env)->GetArrayLength(env, data)) {
         return VP8_STATUS_INVALID_PARAM;
     }
@@ -587,7 +593,7 @@ static jbyteArray FinishEncode(JNIEnv* env, WebPConfig* config, WebPPicture* pic
  */
 static jbyteArray EncodeArgb(JNIEnv* env, jintArray pixels, jint width, jint height,
                              jboolean hasAlpha, const EncodeOptions* options) {
-    if (!DimensionsOk(width, height) ||
+    if (pixels == NULL || !DimensionsOk(width, height) ||
         (jlong)(*env)->GetArrayLength(env, pixels) != (jlong)width * height) {
         return NULL;
     }
@@ -654,7 +660,7 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr
   (JNIEnv *env, jclass clazz, jbyteArray pixels, jint width, jint height,
    jfloat quality, jboolean lossless, jboolean multiThreaded) {
     (void)clazz;
-    if (!DimensionsOk(width, height) ||
+    if (pixels == NULL || !DimensionsOk(width, height) ||
         (jlong)(*env)->GetArrayLength(env, pixels) != (jlong)width * height * 3) {
         return NULL;
     }
@@ -692,7 +698,7 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr
 JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_decodeInto
   (JNIEnv *env, jclass clazz, jbyteArray data, jintArray output, jint outputStride) {
     (void)clazz;
-    if (outputStride <= 0) {
+    if (data == NULL || output == NULL || outputStride <= 0) {
         return JNI_FALSE;
     }
     jsize data_size = (*env)->GetArrayLength(env, data);
@@ -732,6 +738,9 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getGifInfo
   (JNIEnv *env, jclass clazz, jbyteArray gifData, jobject info) {
     (void)clazz;
 #ifdef HAVE_GIFLIB
+    if (gifData == NULL || info == NULL) {
+        return JNI_FALSE;
+    }
     jsize data_size = (*env)->GetArrayLength(env, gifData);
     jbyte* gif_bytes = (*env)->GetByteArrayElements(env, gifData, NULL);
     if (gif_bytes == NULL) {
