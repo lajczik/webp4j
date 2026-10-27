@@ -2,6 +2,7 @@ package xyz.lychee.webp4j.imageio;
 
 import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
 import xyz.lychee.webp4j.codec.WebPEncoder;
+import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.utils.ImageHelper;
 
@@ -208,24 +209,56 @@ public class WebPImageWriter extends ImageWriter {
             }
         }
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream(Math.max(16384, sequenceFrames.size() * 8192));
-        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(
-                baos, hasAlpha, sequenceFrames.size(), width, height, sequenceLoopCount, sequenceBackgroundColor)) {
-            for (int i = 0; i < sequenceFrames.size(); i++) {
-                SequenceFrame sf = sequenceFrames.get(i);
-                encoder.setFrame(i, sf.image, sf.duration, sf.quality, sf.lossless, sf.flags);
-            }
-            encoder.flush();
-        }
+        byte[] animData = encodeSequence(width, height, hasAlpha);
 
-        byte[] animData = baos.toByteArray();
         if (output instanceof ImageOutputStream) {
             ((ImageOutputStream) output).write(animData);
         } else if (output instanceof OutputStream) {
             ((OutputStream) output).write(animData);
+        } else {
+            throw new IllegalStateException("Unsupported output type: " + output.getClass().getName());
         }
 
         sequenceFrames = null;
+    }
+
+    /**
+     * Encodes the collected frames. When every frame uses the same quality/mode and no explicit frame
+     * flags or background are requested, libwebp's WebPAnimEncoder is used (inter-frame optimization
+     * and sub-rectangle frames give much smaller files); otherwise each frame is written as requested.
+     */
+    private byte[] encodeSequence(int width, int height, boolean hasAlpha) throws IOException {
+        SequenceFrame first = sequenceFrames.get(0);
+        boolean uniform = sequenceBackgroundColor == 0;
+        for (SequenceFrame sf : sequenceFrames) {
+            if (sf.flags.length != 0 || sf.lossless != first.lossless || sf.quality != first.quality) {
+                uniform = false;
+                break;
+            }
+        }
+
+        if (uniform) {
+            List<BufferedImage> images = new ArrayList<>(sequenceFrames.size());
+            int[] delays = new int[sequenceFrames.size()];
+            for (int i = 0; i < delays.length; i++) {
+                images.add(sequenceFrames.get(i).image);
+                delays[i] = sequenceFrames.get(i).duration;
+            }
+            GifToWebPConfig config = first.lossless
+                    ? GifToWebPConfig.createLosslessConfig()
+                    : GifToWebPConfig.createLossyConfig(first.quality);
+            config.setLoopCount(sequenceLoopCount);
+            return AnimatedWebPEncoder.encode(images, delays, config);
+        }
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(Math.max(16384, sequenceFrames.size() * 8192));
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, hasAlpha, width, height, sequenceLoopCount, sequenceBackgroundColor)) {
+            for (int i = 0; i < sequenceFrames.size(); i++) {
+                SequenceFrame sf = sequenceFrames.get(i);
+                encoder.setFrame(i, sf.image, sf.duration, sf.quality, sf.lossless, sf.flags);
+            }
+        }
+        return baos.toByteArray();
     }
 
     @Override

@@ -14,7 +14,7 @@ import java.util.Locale;
 public class WebPImageReaderSpi extends ImageReaderSpi {
 
     private static final String VENDOR_NAME = "xyz.lychee";
-    private static final String VERSION = "2.6.0";
+    private static final String VERSION = xyz.lychee.webp4j.WebPVersion.get();
     private static final String[] NAMES = {"webp", "WEBP", "WebP"};
     private static final String[] SUFFIXES = {"webp"};
     private static final String[] MIME_TYPES = {"image/webp", "image/x-webp"};

@@ -2,6 +2,8 @@ package xyz.lychee.webp4j.imageio;
 
 import xyz.lychee.webp4j.codec.AnimatedWebPDecoder;
 import xyz.lychee.webp4j.codec.WebPDecoder;
+import xyz.lychee.webp4j.model.AnimatedWebPData;
+import xyz.lychee.webp4j.utils.WebPLimits;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 
 import javax.imageio.ImageReadParam;
@@ -10,7 +12,7 @@ import javax.imageio.ImageTypeSpecifier;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.spi.ImageReaderSpi;
 import javax.imageio.stream.ImageInputStream;
-import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +33,8 @@ public class WebPImageReader extends ImageReader {
     private int height;
     private boolean hasAlpha;
     private boolean isAnimated;
+    private int frameCount = 1;
+    private AnimatedWebPData animation;
 
     public WebPImageReader(ImageReaderSpi originatingProvider) {
         super(originatingProvider);
@@ -49,7 +53,7 @@ public class WebPImageReader extends ImageReader {
         }
         readHeader();
         if (isAnimated) {
-            return AnimatedWebPDecoder.getFrameCount(getWebPData());
+            return frameCount;
         }
         return 1;
     }
@@ -98,26 +102,51 @@ public class WebPImageReader extends ImageReader {
         byte[] data = getWebPData();
         BufferedImage result;
         if (isAnimated) {
-            result = AnimatedWebPDecoder.decodeFrame(data, imageIndex).getImage();
+            result = readAnimatedFrame(data, imageIndex);
         } else {
             result = WebPDecoder.decode(data);
         }
 
-        if (param != null) {
-            BufferedImage dest = param.getDestination();
-            if (dest != null) {
-                Graphics2D g = dest.createGraphics();
-                try {
-                    g.drawImage(result, 0, 0, null);
-                } finally {
-                    g.dispose();
-                }
-                result = dest;
-            }
-        }
+        result = applyReadParam(result, param);
 
         processImageComplete();
         return result;
+    }
+
+    /**
+     * Honours the source region, subsampling and destination (image and offset) of an {@link ImageReadParam}.
+     * Decoding is always whole-frame (WebP has no random access), so these are applied to the decoded raster.
+     */
+    private BufferedImage applyReadParam(BufferedImage image, ImageReadParam param) {
+        if (param == null) {
+            return image;
+        }
+        BufferedImage dest = param.getDestination();
+        Rectangle src = new Rectangle();
+        Rectangle dst = new Rectangle();
+        computeRegions(param, image.getWidth(), image.getHeight(), dest, src, dst);
+
+        int xPeriod = param.getSourceXSubsampling();
+        int yPeriod = param.getSourceYSubsampling();
+        boolean identity = dest == null && xPeriod == 1 && yPeriod == 1 && src.x == 0 && src.y == 0
+                && src.width == image.getWidth() && src.height == image.getHeight();
+        if (identity) {
+            return image;
+        }
+
+        BufferedImage out = dest;
+        if (out == null) {
+            int type = image.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+            out = new BufferedImage(dst.x + dst.width, dst.y + dst.height, type);
+        }
+        int[] row = new int[src.width];
+        for (int dy = 0; dy < dst.height; dy++) {
+            image.getRGB(src.x, src.y + dy * yPeriod, src.width, 1, row, 0, src.width);
+            for (int dx = 0; dx < dst.width; dx++) {
+                out.setRGB(dst.x + dx, dst.y + dy, row[dx * xPeriod]);
+            }
+        }
+        return out;
     }
 
     @Override
@@ -139,6 +168,8 @@ public class WebPImageReader extends ImageReader {
         this.height = 0;
         this.hasAlpha = false;
         this.isAnimated = false;
+        this.frameCount = 1;
+        this.animation = null;
     }
 
     private void checkIndex(int imageIndex) throws IOException {
@@ -161,6 +192,21 @@ public class WebPImageReader extends ImageReader {
         this.height = features.getHeight();
         this.hasAlpha = features.isHasAlpha();
         this.isAnimated = features.isHasAnimation();
+        this.frameCount = isAnimated ? AnimatedWebPDecoder.getFrameCount(data) : 1;
+    }
+
+    /**
+     * Frame 0 is decoded on its own; later frames depend on the composition of the previous ones, so the
+     * animation is decoded once and cached for the lifetime of the input (reading every frame is O(N), not O(N^2)).
+     */
+    private BufferedImage readAnimatedFrame(byte[] data, int imageIndex) throws IOException {
+        if (animation == null) {
+            if (imageIndex == 0) {
+                return AnimatedWebPDecoder.decodeFirstFrame(data).getImage();
+            }
+            animation = AnimatedWebPDecoder.decode(data);
+        }
+        return animation.getFrame(imageIndex).getImage();
     }
 
     private byte[] getWebPData() throws IOException {
@@ -174,6 +220,7 @@ public class WebPImageReader extends ImageReader {
         stream.seek(0);
         long length = stream.length();
         if (length > 0 && length <= Integer.MAX_VALUE) {
+            WebPLimits.checkInputSize(length);
             byte[] data = new byte[(int) length];
             stream.readFully(data);
             this.webPData = data;
@@ -182,7 +229,10 @@ public class WebPImageReader extends ImageReader {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream(32768);
             byte[] chunk = new byte[8192];
             int bytesRead;
+            long total = 0;
             while ((bytesRead = stream.read(chunk)) != -1) {
+                total += bytesRead;
+                WebPLimits.checkInputSize(total);
                 buffer.write(chunk, 0, bytesRead);
             }
             this.webPData = buffer.toByteArray();
