@@ -1,6 +1,7 @@
 package xyz.lychee.webp4j.model;
 
 import xyz.lychee.webp4j.chunks.*;
+import xyz.lychee.webp4j.utils.RiffScanner;
 import xyz.lychee.webp4j.utils.Util;
 import lombok.Getter;
 import lombok.Setter;
@@ -83,7 +84,9 @@ public class WebPBitstreamFeatures {
 
     /**
      * Parses WebP bitstream features directly from a WebP byte array using RIFF chunk inspection.
-     * Does not require the native libwebp library.
+     * Does not require the native libwebp library and allocates no chunk objects. Only the first
+     * bytes of the image header are interpreted, so a truncated file (for example the first
+     * 64 bytes of a file) is sufficient.
      *
      * @param webPData WebP image byte array
      * @return Populated WebPBitstreamFeatures
@@ -93,89 +96,64 @@ public class WebPBitstreamFeatures {
         if (webPData == null || webPData.length < 12) {
             throw new IllegalArgumentException("WebP data cannot be null or shorter than 12 bytes.");
         }
-        if (webPData[0] != 'R' || webPData[1] != 'I' || webPData[2] != 'F' || webPData[3] != 'F'
-                || webPData[8] != 'W' || webPData[9] != 'E' || webPData[10] != 'B' || webPData[11] != 'P') {
-            throw new IOException("Invalid WebP data: missing RIFF/WEBP signature");
-        }
 
-        // Fast-path inspection without allocating Chunk objects or slicing payload byte arrays
-        if (webPData.length >= 26) {
-            byte c0 = webPData[12];
-            byte c1 = webPData[13];
-            byte c2 = webPData[14];
-            byte c3 = webPData[15];
+        RiffScanner scanner = RiffScanner.open(webPData);
+        WebPBitstreamFeatures f = new WebPBitstreamFeatures();
+        boolean canvasKnown = false;
 
-            // VP8 (lossy) simple container
-            if (c0 == 'V' && c1 == 'P' && c2 == '8' && c3 == ' ') {
-                if (webPData.length >= 30
-                        && (webPData[23] & 0xFF) == 0x9D
-                        && (webPData[24] & 0xFF) == 0x01
-                        && (webPData[25] & 0xFF) == 0x2A) {
-                    WebPBitstreamFeatures f = new WebPBitstreamFeatures();
-                    f.setWidth((webPData[26] & 0xFF) | ((webPData[27] & 0x3F) << 8));
-                    f.setHeight((webPData[28] & 0xFF) | ((webPData[29] & 0x3F) << 8));
-                    f.setFormat(1); // Lossy
-                    f.setHasAlpha(false);
-                    f.setHasAnimation(false);
-                    return f;
+        while (scanner.next()) {
+            int id = scanner.fourCC();
+            int off = scanner.payloadOffset();
+            int len = scanner.payloadLength();
+
+            if (id == RiffScanner.VP8X) {
+                if (len >= 10) {
+                    int flags = Util.toInt32(webPData, off);
+                    f.setWidth(1 + Util.toUInt24(webPData, off + 4));
+                    f.setHeight(1 + Util.toUInt24(webPData, off + 7));
+                    f.setHasAlpha(WebPContainerFlag.ALPHA.isSet(flags));
+                    f.setHasAnimation(WebPContainerFlag.ANIMATION.isSet(flags));
+                    canvasKnown = true;
                 }
-            } else if (c0 == 'V' && c1 == 'P' && c2 == '8' && c3 == 'L') {
-                // VP8L (lossless) simple container
-                if (webPData.length >= 25 && (webPData[20] & 0xFF) == 0x2F) {
-                    int b0 = webPData[21] & 0xFF;
-                    int b1 = webPData[22] & 0xFF;
-                    int b2 = webPData[23] & 0xFF;
-                    int b3 = webPData[24] & 0xFF;
-                    WebPBitstreamFeatures f = new WebPBitstreamFeatures();
+            } else if (id == RiffScanner.ALPH) {
+                f.setHasAlpha(true);
+            } else if (id == RiffScanner.ANIM) {
+                f.setHasAnimation(true);
+            } else if (id == RiffScanner.ANMF) {
+                // Animated image: canvas and flags come from VP8X, frames are not inspected here.
+                f.setHasAnimation(true);
+                break;
+            } else if (id == RiffScanner.VP8L) {
+                if (!canvasKnown && len >= 5 && (webPData[off] & 0xFF) == 0x2F) {
+                    int b0 = webPData[off + 1] & 0xFF;
+                    int b1 = webPData[off + 2] & 0xFF;
+                    int b2 = webPData[off + 3] & 0xFF;
+                    int b3 = webPData[off + 4] & 0xFF;
                     f.setWidth(1 + (((b1 & 0x3F) << 8) | b0));
                     f.setHeight(1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6)));
                     f.setHasAlpha((b3 & 0x10) != 0);
-                    f.setFormat(2); // Lossless
-                    f.setHasAnimation(false);
-                    return f;
                 }
-            } else if (c0 == 'V' && c1 == 'P' && c2 == '8' && c3 == 'X') {
-                // VP8X extended container
-                if (webPData.length >= 30) {
-                    WebPBitstreamFeatures f = new WebPBitstreamFeatures();
-                    int flags = Util.toInt32(webPData, 20);
-                    f.setWidth(1 + Util.toUInt24(webPData, 24));
-                    f.setHeight(1 + Util.toUInt24(webPData, 27));
-                    f.setHasAlpha(WebPContainerFlag.ALPHA.isSet(flags));
-                    f.setHasAnimation(WebPContainerFlag.ANIMATION.isSet(flags));
-
-                    // Scan subsequent chunks for format if not animated
-                    int offset = 30; // 12 + 8 (VP8X header) + 10 (VP8X payload)
-                    while (offset + 8 <= webPData.length) {
-                        long chunkSize = Util.toUInt32(webPData, offset + 4);
-                        if (webPData[offset] == 'V' && webPData[offset + 1] == 'P' && webPData[offset + 2] == '8') {
-                            if (webPData[offset + 3] == 'L') {
-                                f.setFormat(2); // Lossless
-                                break;
-                            } else if (webPData[offset + 3] == ' ') {
-                                if (!f.isHasAnimation()) {
-                                    f.setFormat(1); // Lossy
-                                }
-                                break;
-                            }
-                        } else if (webPData[offset] == 'A' && webPData[offset + 1] == 'L'
-                                && webPData[offset + 2] == 'P' && webPData[offset + 3] == 'H') {
-                            f.setHasAlpha(true);
-                        } else if (webPData[offset] == 'A' && webPData[offset + 1] == 'N'
-                                && webPData[offset + 2] == 'I' && webPData[offset + 3] == 'M') {
-                            f.setHasAnimation(true);
-                        }
-                        int padding = Util.isOdd(chunkSize) ? 1 : 0;
-                        offset += 8 + (int) chunkSize + padding;
-                    }
-                    return f;
+                f.setFormat(2); // Lossless
+                break;
+            } else if (id == RiffScanner.VP8) {
+                if (!canvasKnown && len >= 10
+                        && (webPData[off + 3] & 0xFF) == 0x9D
+                        && (webPData[off + 4] & 0xFF) == 0x01
+                        && (webPData[off + 5] & 0xFF) == 0x2A) {
+                    f.setWidth((webPData[off + 6] & 0xFF) | ((webPData[off + 7] & 0x3F) << 8));
+                    f.setHeight((webPData[off + 8] & 0xFF) | ((webPData[off + 9] & 0x3F) << 8));
                 }
+                if (!f.isHasAnimation()) {
+                    f.setFormat(1); // Lossy
+                }
+                break;
             }
         }
 
-        // Fallback for complex/non-standard WebP files
-        List<Chunk> chunks = ChunkFactory.parseAll(webPData);
-        return fromChunks(chunks);
+        if (f.getWidth() <= 0 || f.getHeight() <= 0) {
+            throw new IOException("Invalid WebP data: no image header found");
+        }
+        return f;
     }
 
     /**

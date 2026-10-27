@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.EnumSet;
 
-import static xyz.lychee.webp4j.utils.Util.checkUInt24;
 
 /**
  * Extended container chunk (VP8X) defining canvas dimensions and feature flags.
@@ -22,8 +21,12 @@ public class VP8XChunk extends Chunk {
 
     public VP8XChunk(int flags, int canvasWidth, int canvasHeight) {
         super(VP8X, 4 + 3 + 3);
-        this.canvasWidth = checkUInt24(canvasWidth);
-        this.canvasHeight = checkUInt24(canvasHeight);
+        if (canvasWidth < 1 || canvasWidth > (1 << 24) || canvasHeight < 1 || canvasHeight > (1 << 24)) {
+            throw new IllegalArgumentException("Canvas size must be between 1 and 16777216, but was "
+                    + canvasWidth + "x" + canvasHeight);
+        }
+        this.canvasWidth = canvasWidth;
+        this.canvasHeight = canvasHeight;
         this.rsvILEXARReserved = flags;
     }
 

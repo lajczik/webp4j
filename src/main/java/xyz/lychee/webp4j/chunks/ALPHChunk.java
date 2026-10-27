@@ -22,7 +22,7 @@ public class ALPHChunk extends RawDataChunk {
 
     public ALPHChunk(byte[] data) {
         super(ALPH, data);
-        rsvPFC = data[0];
+        rsvPFC = data.length > 0 ? data[0] & 0xFF : 0;
     }
 
     public int getFlags() {

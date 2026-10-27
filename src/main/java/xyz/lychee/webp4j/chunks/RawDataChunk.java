@@ -16,8 +16,8 @@ public class RawDataChunk extends Chunk {
     private final byte[] rawData;
 
     public RawDataChunk(byte[] fourCC, byte[] data) {
-        super(fourCC, data.length);
-        this.rawData = Objects.requireNonNull(data);
+        super(fourCC, Objects.requireNonNull(data, "data").length);
+        this.rawData = data;
     }
 
     protected void writeRawData(OutputStream out) throws IOException {
