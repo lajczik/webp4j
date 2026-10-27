@@ -27,7 +27,7 @@ class WebPChunkTest {
 
         assertNotNull(chunks);
         assertFalse(chunks.isEmpty());
-        assertTrue(chunks.get(0) instanceof VP8Chunk, "First chunk of test_rgb.webp should be VP8");
+        assertInstanceOf(VP8Chunk.class, chunks.get(0), "First chunk of test_rgb.webp should be VP8");
 
         VP8Chunk vp8 = (VP8Chunk) chunks.get(0);
         assertTrue(vp8.getSize() > 0);
@@ -116,9 +116,9 @@ class WebPChunkTest {
         // Round-trip parse
         List<Chunk> parsed = ChunkFactory.parseAll(serialized);
         assertEquals(3, parsed.size());
-        assertTrue(parsed.get(0) instanceof VP8XChunk);
-        assertTrue(parsed.get(1) instanceof ANIMChunk);
-        assertTrue(parsed.get(2) instanceof ANMFChunk);
+        assertInstanceOf(VP8XChunk.class, parsed.get(0));
+        assertInstanceOf(ANIMChunk.class, parsed.get(1));
+        assertInstanceOf(ANMFChunk.class, parsed.get(2));
 
         // Metadata extraction
         AnimationInfo animInfo = AnimatedWebPDecoder.getAnimationInfo(serialized);
