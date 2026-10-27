@@ -60,9 +60,13 @@ jobs:
 
     - name: Publish to Maven Central
       env:
+        MAVENCENTRAL_USERNAME: ${{ secrets.MAVENCENTRAL_USERNAME }}
+        MAVENCENTRAL_TOKEN: ${{ secrets.MAVENCENTRAL_TOKEN }}
+        GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY || secrets.GPG_SECRET_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
         OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
-        ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_PRIVATE_KEY }}
+        ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_PRIVATE_KEY || secrets.GPG_SECRET_KEY }}
         ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
       run: |
         ./gradlew publish -x test
@@ -137,7 +141,7 @@ jobs:
           **Maven:**
           ```xml
           <dependency>
-            <groupId>xyz.lychee.webp4j</groupId>
+            <groupId>io.github.lajczik</groupId>
             <artifactId>webp4j</artifactId>
             <version>${{ steps.version.outputs.VERSION }}</version>
           </dependency>
@@ -145,7 +149,7 @@ jobs:
 
           **Gradle:**
           ```gradle
-          implementation 'xyz.lychee.webp4j:webp4j:${{ steps.version.outputs.VERSION }}'
+          implementation 'io.github.lajczik:webp4j:${{ steps.version.outputs.VERSION }}'
           ```
 
           ### Supported Platforms

@@ -2,9 +2,11 @@ plugins {
     `java-library`
     `maven-publish`
     signing
+    id("com.gradleup.nmcp") version "1.6.2"
+    id("com.gradleup.nmcp.aggregation") version "1.6.2"
 }
 
-group = "xyz.lychee.webp4j"
+group = "io.github.lajczik"
 version = "2.6.0"
 
 repositories {
@@ -25,6 +27,8 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    nmcpAggregation(project(":"))
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -49,7 +53,7 @@ tasks.named<Jar>("jar") {
     manifest {
         attributes(
             "Multi-Release" to "true",
-            "Automatic-Module-Name" to project.group.toString(),
+            "Automatic-Module-Name" to "xyz.lychee.webp4j",
             "Implementation-Title" to "webp4j",
             "Implementation-Version" to project.version
         )
@@ -82,55 +86,91 @@ tasks.named<Test>("test") {
     useJUnitPlatform()
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("mavenJava") {
-            artifactId = "webp4j"
-            from(components["java"])
-            pom {
-                name.set("webp4j")
-                description.set("WebP4j is a high-performance Java library, powered by JNI and FFM bindings to Google's libwebp, for encoding and decoding WebP images. It also supports converting GIFs to WebP, building animated WebP files, and choosing between lossless and lossy compression.")
-                url.set("https://github.com/MrNanko/webp4j")
-                licenses {
-                    license {
-                        name.set("MIT License")
-                        url.set("https://opensource.org/licenses/MIT")
-                        distribution.set("repo")
-                    }
-                }
-                developers {
-                    developer {
-                        id.set("MrNanko")
-                        name.set("MrNanko")
-                        email.set("i@matrixlab.dev")
-                    }
-                }
-                scm {
-                    connection.set("scm:git:git://github.com/MrNanko/webp4j.git")
-                    developerConnection.set("scm:git:ssh://git@github.com:MrNanko/webp4j.git")
-                    url.set("https://github.com/MrNanko/webp4j.git")
-                }
-            }
+////////////////////////////////////
+//                                //
+//    Publishing And Signing      //
+//                                //
+////////////////////////////////////
+
+// Generate pom file for maven central
+
+fun MavenPom.populate() {
+    packaging = "jar"
+    name.set(project.name)
+    description.set("Lightweight and high-performance WebP and Animated WebP codec library for the JVM with Java ImageIO support")
+    url.set("https://github.com/lajczik/webp4j")
+    scm {
+        url.set("https://github.com/lajczik/webp4j")
+        connection.set("scm:git:git://github.com/lajczik/webp4j.git")
+        developerConnection.set("scm:git:ssh://git@github.com:lajczik/webp4j.git")
+    }
+    licenses {
+        license {
+            name.set("MIT License")
+            url.set("https://opensource.org/licenses/MIT")
+            distribution.set("repo")
         }
     }
-    repositories {
-        maven {
-            val releasesRepoUrl = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
-            val snapshotsRepoUrl = uri("https://oss.sonatype.org/content/repositories/snapshots/")
-            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
-            credentials {
-                username = findProperty("ossrhUsername") as String? ?: System.getenv("OSSRH_USERNAME")
-                password = findProperty("ossrhPassword") as String? ?: System.getenv("OSSRH_PASSWORD")
-            }
+    developers {
+        developer {
+            id.set("lychee")
+            name.set("lajczik")
+            email.set("lajczik@gmail.com")
+        }
+        developer {
+            id.set("MrNanko")
+            name.set("MrNanko")
+            email.set("i@matrixlab.dev")
         }
     }
 }
 
-signing {
-    val signingKey = findProperty("signingKey") as String? ?: System.getenv("SIGNING_KEY") ?: System.getenv("GPG_PRIVATE_KEY")
-    val signingPassword = findProperty("signingPassword") as String? ?: System.getenv("SIGNING_PASSWORD") ?: System.getenv("GPG_PASSPHRASE")
-    if (!signingKey.isNullOrBlank()) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign(publishing.publications["mavenJava"])
+val mavenCentralUsername: String? = (findProperty("mavenCentralUsername") as String?)
+    ?: System.getenv("MAVENCENTRAL_USERNAME")?.takeIf { it.isNotBlank() }
+val mavenCentralPassword: String? = (findProperty("mavenCentralPassword") as String?)
+    ?: System.getenv("MAVENCENTRAL_TOKEN")?.takeIf { it.isNotBlank() }
+val gpgSecretKey: String? = (findProperty("signingKey") as String?)
+    ?: System.getenv("GPG_SECRET_KEY")?.takeIf { it.isNotBlank() }
+val gpgPassphrase: String? = (findProperty("signingPassword") as String?)
+    ?: System.getenv("GPG_PASSPHRASE")?.takeIf { it.isNotBlank() }
+
+val stagingDirectory = layout.buildDirectory.dir("staging-deploy").get()
+
+publishing {
+    publications {
+        register<MavenPublication>("Release") {
+            from(components["java"])
+
+            artifactId = project.name
+            groupId = project.group as String
+            version = project.version as String
+
+            pom.populate()
+        }
+    }
+}
+
+if (gpgSecretKey != null) {
+    signing {
+        val formattedKey = if (!gpgSecretKey.contains("-----BEGIN PGP PRIVATE KEY BLOCK-----")) {
+            val cleanKey = gpgSecretKey.trim().replace("\\r?\\n".toRegex(), "")
+            "-----BEGIN PGP PRIVATE KEY BLOCK-----\n\n$cleanKey\n-----END PGP PRIVATE KEY BLOCK-----"
+        } else {
+            gpgSecretKey
+        }
+        useInMemoryPgpKeys(formattedKey, gpgPassphrase ?: "")
+        sign(publishing.publications)
+    }
+}
+
+nmcpAggregation {
+    localRepository {
+        name = "staging-deploy"
+        path = stagingDirectory.asFile.path
+    }
+
+    centralPortal {
+        username.set(mavenCentralUsername)
+        password.set(mavenCentralPassword)
     }
 }
