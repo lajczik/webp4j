@@ -621,4 +621,97 @@ class RegressionTest {
         assertTrue(lib.getParentFile().getName().startsWith("webp4j-"), lib.toString());
         assertTrue(lib.isFile());
     }
+
+    // ------------------------------------------------------------------ WebPEncoderOptions & Metadata
+
+    @Test
+    void encoderOptionsEmbedMetadataCorrectly() throws IOException {
+        BufferedImage img = image(32, 32, BufferedImage.TYPE_INT_ARGB, 42);
+        byte[] exif = "SAMPLE-EXIF-METADATA".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] icc = new byte[]{1, 2, 3, 4, 5, 6, 7, 8};
+        String xmp = "<xmp>SampleXMP</xmp>";
+
+        WebPEncoderOptions options = WebPEncoderOptions.lossy(80f)
+                .setExif(exif)
+                .setIccProfile(icc)
+                .setXmp(xmp);
+
+        assertTrue(options.hasMetadata());
+        byte[] webp = WebPEncoder.encode(img, options);
+        assertSingleRiff(webp);
+
+        assertArrayEquals(exif, WebPDecoder.getExifMetadata(webp));
+        assertArrayEquals(icc, WebPDecoder.getIccProfile(webp));
+        assertEquals(xmp, WebPDecoder.getXmpMetadata(webp));
+    }
+
+    @Test
+    void animatedWebPEncoderEmbedsMetadataCorrectly() throws IOException {
+        BufferedImage f1 = image(24, 24, BufferedImage.TYPE_INT_ARGB, 1);
+        BufferedImage f2 = image(24, 24, BufferedImage.TYPE_INT_ARGB, 2);
+        byte[] exif = "ANIM-EXIF-DATA".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] icc = new byte[]{9, 8, 7, 6};
+        String xmp = "<xmp>AnimXMP</xmp>";
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 24, 24)) {
+            encoder.setExif(exif);
+            encoder.setIccProfile(icc);
+            encoder.setXmp(xmp);
+            encoder.addFrame(f1, 100, 80f);
+            encoder.addFrame(f2, 100, 80f);
+        }
+
+        byte[] animBytes = baos.toByteArray();
+        assertSingleRiff(animBytes);
+        assertArrayEquals(exif, WebPDecoder.getExifMetadata(animBytes));
+        assertArrayEquals(icc, WebPDecoder.getIccProfile(animBytes));
+        assertEquals(xmp, WebPDecoder.getXmpMetadata(animBytes));
+    }
+
+    @Test
+    void batchProcessorSupportsWebPEncoderOptions() throws IOException {
+        List<BufferedImage> images = Arrays.asList(
+                image(16, 16, BufferedImage.TYPE_INT_RGB, 1),
+                image(16, 16, BufferedImage.TYPE_INT_RGB, 2)
+        );
+
+        WebPEncoderOptions options = WebPEncoderOptions.lossless(60);
+        List<byte[]> results = BatchProcessor.encodeImages(images, options);
+        assertEquals(2, results.size());
+        assertSingleRiff(results.get(0));
+        assertSingleRiff(results.get(1));
+
+        List<byte[]> streamed = new ArrayList<>();
+        BatchProcessor.encodeEach(images.iterator(), options, (idx, res) -> streamed.add(res));
+        assertEquals(2, streamed.size());
+        assertSingleRiff(streamed.get(0));
+    }
+
+    @Test
+    void imageWriteParamSupportsWebPEncoderOptions() throws IOException {
+        BufferedImage img = image(20, 20, BufferedImage.TYPE_INT_RGB, 7);
+        xyz.lychee.webp4j.imageio.WebPImageWriteParam param =
+                new xyz.lychee.webp4j.imageio.WebPImageWriteParam(null);
+        param.setEncoderOptions(WebPEncoderOptions.lossy(85f).setSharpYuv(true));
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (javax.imageio.stream.MemoryCacheImageOutputStream ios =
+                     new javax.imageio.stream.MemoryCacheImageOutputStream(baos)) {
+            javax.imageio.ImageWriter writer = ImageIO.getImageWritersByFormatName("webp").next();
+            writer.setOutput(ios);
+            writer.write(null, new javax.imageio.IIOImage(img, null, null), param);
+            writer.dispose();
+        }
+
+        byte[] bytes = baos.toByteArray();
+        assertSingleRiff(bytes);
+        assertEquals(20, WebPDecoder.getInfo(bytes)[0]);
+    }
+
+    @Test
+    void webpDecoderRejectsNullWithoutException() {
+        assertFalse(WebPDecoder.decodeInto(null, new int[10], 4));
+        assertFalse(WebPDecoder.decodeInto(new byte[10], null, 4));
+    }
 }

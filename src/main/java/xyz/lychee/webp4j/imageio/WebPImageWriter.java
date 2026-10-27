@@ -92,20 +92,25 @@ public class WebPImageWriter extends ImageWriter {
         RenderedImage renderedImage = iioImage.getRenderedImage();
         BufferedImage image = ImageHelper.toBufferedImage(renderedImage);
 
-        float quality = 75.0f;
-        boolean lossless = false;
+        byte[] encoded;
+        if (param instanceof WebPImageWriteParam && ((WebPImageWriteParam) param).getEncoderOptions() != null) {
+            encoded = WebPEncoder.encode(image, ((WebPImageWriteParam) param).getEncoderOptions());
+        } else {
+            float quality = 75.0f;
+            boolean lossless = false;
 
-        if (param instanceof WebPImageWriteParam) {
-            WebPImageWriteParam webpParam = (WebPImageWriteParam) param;
-            lossless = webpParam.isLossless();
-            if (!lossless && webpParam.getCompressionMode() == ImageWriteParam.MODE_EXPLICIT) {
-                quality = webpParam.getCompressionQuality() * 100.0f;
+            if (param instanceof WebPImageWriteParam) {
+                WebPImageWriteParam webpParam = (WebPImageWriteParam) param;
+                lossless = webpParam.isLossless();
+                if (!lossless && webpParam.getCompressionMode() == ImageWriteParam.MODE_EXPLICIT) {
+                    quality = webpParam.getCompressionQuality() * 100.0f;
+                }
+            } else if (param != null && param.getCompressionMode() == ImageWriteParam.MODE_EXPLICIT) {
+                quality = param.getCompressionQuality() * 100.0f;
             }
-        } else if (param != null && param.getCompressionMode() == ImageWriteParam.MODE_EXPLICIT) {
-            quality = param.getCompressionQuality() * 100.0f;
-        }
 
-        byte[] encoded = WebPEncoder.encode(image, quality, lossless);
+            encoded = WebPEncoder.encode(image, quality, lossless);
+        }
 
         if (output instanceof ImageOutputStream) {
             ((ImageOutputStream) output).write(encoded);

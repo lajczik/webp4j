@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,9 +40,13 @@ public class AnimatedWebPEncoder implements AutoCloseable {
 
     private final OutputStream out;
     private final boolean alpha;
-    private final VP8XChunk vp8XChunk;
+    private final int canvasWidth;
+    private final int canvasHeight;
     private final ANIMChunk animChunk;
     private final ArrayList<ANMFChunk> frames = new ArrayList<>();
+    private byte[] iccp;
+    private byte[] exif;
+    private String xmp;
 
     private boolean finished;
     private boolean failed;
@@ -53,14 +58,39 @@ public class AnimatedWebPEncoder implements AutoCloseable {
     public AnimatedWebPEncoder(OutputStream out, boolean alpha, int width, int height, int loopCount, int backgroundColor) {
         this.out = out;
         this.alpha = alpha;
-
-        int vp8xFlags = WebPContainerFlag.ANIMATION.getMask() | (alpha ? WebPContainerFlag.ALPHA.getMask() : 0);
-        this.vp8XChunk = new VP8XChunk(vp8xFlags, width, height);
+        this.canvasWidth = width;
+        this.canvasHeight = height;
         this.animChunk = new ANIMChunk(backgroundColor, loopCount);
     }
 
     public boolean isAlpha() {
         return alpha;
+    }
+
+    public int getCanvasWidth() {
+        return canvasWidth;
+    }
+
+    public int getCanvasHeight() {
+        return canvasHeight;
+    }
+
+    /** Sets raw ICC color profile bytes to be embedded in the animation container. */
+    public void setIccProfile(byte[] iccp) {
+        ensureWritable();
+        this.iccp = iccp != null ? iccp.clone() : null;
+    }
+
+    /** Sets raw EXIF metadata bytes to be embedded in the animation container. */
+    public void setExif(byte[] exif) {
+        ensureWritable();
+        this.exif = exif != null ? exif.clone() : null;
+    }
+
+    /** Sets XMP metadata XML string to be embedded in the animation container. */
+    public void setXmp(String xmp) {
+        ensureWritable();
+        this.xmp = xmp;
     }
 
     /** Number of frame slots set so far (including unset slots below the highest index). */
@@ -69,16 +99,32 @@ public class AnimatedWebPEncoder implements AutoCloseable {
     }
 
     /**
-     * Returns the container chunks as they would be written: VP8X, ANIM and every frame that is set.
+     * Returns the container chunks as they would be written: VP8X, optional ICCP, ANIM,
+     * every frame that is set, optional EXIF, optional XMP.
      */
     public Chunk[] getChunks() {
-        List<Chunk> chunks = new ArrayList<>(2 + frames.size());
-        chunks.add(vp8XChunk);
+        int flags = (alpha ? WebPContainerFlag.ALPHA.getMask() : 0)
+                | WebPContainerFlag.ANIMATION.getMask()
+                | (iccp != null && iccp.length > 0 ? WebPContainerFlag.ICC_PROFILE.getMask() : 0)
+                | (exif != null && exif.length > 0 ? WebPContainerFlag.EXIF.getMask() : 0)
+                | (xmp != null && !xmp.isEmpty() ? WebPContainerFlag.XMP.getMask() : 0);
+
+        List<Chunk> chunks = new ArrayList<>(4 + frames.size());
+        chunks.add(new VP8XChunk(flags, canvasWidth, canvasHeight));
+        if (iccp != null && iccp.length > 0) {
+            chunks.add(new ICCPChunk(iccp));
+        }
         chunks.add(animChunk);
         for (ANMFChunk frame : frames) {
             if (frame != null) {
                 chunks.add(frame);
             }
+        }
+        if (exif != null && exif.length > 0) {
+            chunks.add(new EXIFChunk(exif));
+        }
+        if (xmp != null && !xmp.isEmpty()) {
+            chunks.add(new XMPChunk(xmp.getBytes(StandardCharsets.UTF_8)));
         }
         return chunks.toArray(new Chunk[0]);
     }
@@ -202,20 +248,35 @@ public class AnimatedWebPEncoder implements AutoCloseable {
             throw new IllegalStateException("An animation needs at least one frame");
         }
 
-        List<Chunk> chunks = new ArrayList<>(2 + frames.size());
-        chunks.add(vp8XChunk);
+        int flags = (alpha ? WebPContainerFlag.ALPHA.getMask() : 0)
+                | WebPContainerFlag.ANIMATION.getMask()
+                | (iccp != null && iccp.length > 0 ? WebPContainerFlag.ICC_PROFILE.getMask() : 0)
+                | (exif != null && exif.length > 0 ? WebPContainerFlag.EXIF.getMask() : 0)
+                | (xmp != null && !xmp.isEmpty() ? WebPContainerFlag.XMP.getMask() : 0);
+
+        List<Chunk> chunks = new ArrayList<>(4 + frames.size());
+        chunks.add(new VP8XChunk(flags, canvasWidth, canvasHeight));
+        if (iccp != null && iccp.length > 0) {
+            chunks.add(new ICCPChunk(iccp));
+        }
         chunks.add(animChunk);
         for (int i = 0; i < frames.size(); i++) {
             ANMFChunk frame = frames.get(i);
             if (frame == null) {
                 throw new IOException("Frame " + i + " was never set");
             }
-            if ((long) frame.getFrameX() + frame.getFrameWidth() > vp8XChunk.getCanvasWidth()
-                    || (long) frame.getFrameY() + frame.getFrameHeight() > vp8XChunk.getCanvasHeight()) {
+            if ((long) frame.getFrameX() + frame.getFrameWidth() > canvasWidth
+                    || (long) frame.getFrameY() + frame.getFrameHeight() > canvasHeight) {
                 throw new IOException("Frame " + i + " does not fit on the "
-                        + vp8XChunk.getCanvasWidth() + "x" + vp8XChunk.getCanvasHeight() + " canvas");
+                        + canvasWidth + "x" + canvasHeight + " canvas");
             }
             chunks.add(frame);
+        }
+        if (exif != null && exif.length > 0) {
+            chunks.add(new EXIFChunk(exif));
+        }
+        if (xmp != null && !xmp.isEmpty()) {
+            chunks.add(new XMPChunk(xmp.getBytes(StandardCharsets.UTF_8)));
         }
 
         finished = true;

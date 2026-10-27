@@ -1,5 +1,6 @@
 package xyz.lychee.webp4j.imageio;
 
+import xyz.lychee.webp4j.model.WebPEncoderOptions;
 import xyz.lychee.webp4j.model.WebPFrameFlag;
 
 import javax.imageio.ImageWriteParam;
@@ -25,6 +26,7 @@ public class WebPImageWriteParam extends ImageWriteParam {
     private int loopCount = 0;
     private int backgroundColor = 0x00000000;
     private WebPFrameFlag[] frameFlags = new WebPFrameFlag[0];
+    private WebPEncoderOptions encoderOptions;
 
     public WebPImageWriteParam(Locale locale) {
         super(locale);
@@ -153,5 +155,20 @@ public class WebPImageWriteParam extends ImageWriteParam {
      */
     public void setFrameFlags(WebPFrameFlag... frameFlags) {
         this.frameFlags = frameFlags != null ? frameFlags : new WebPFrameFlag[0];
+    }
+
+    /**
+     * Returns a copy of the fine-grained encoder options configured on this param, or {@code null}.
+     */
+    public WebPEncoderOptions getEncoderOptions() {
+        return encoderOptions != null ? encoderOptions.copy() : null;
+    }
+
+    /**
+     * Sets fine-grained encoder options (sharp YUV, exact alpha, near-lossless, compression method, metadata).
+     * When set, these options take precedence over standard quality and lossless settings.
+     */
+    public void setEncoderOptions(WebPEncoderOptions options) {
+        this.encoderOptions = options != null ? options.copy() : null;
     }
 }

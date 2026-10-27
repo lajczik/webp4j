@@ -191,6 +191,18 @@ public final class WebPCodec {
         WebPEncoder.encodeWithMetadata(image, path, quality, lossless, exif, iccp, xmp);
     }
 
+    public static byte[] encodeImageWithMetadata(BufferedImage image, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        return WebPEncoder.encodeWithMetadata(image, options);
+    }
+
+    public static void encodeImageWithMetadata(BufferedImage image, File file, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        WebPEncoder.encodeWithMetadata(image, file, options);
+    }
+
+    public static void encodeImageWithMetadata(BufferedImage image, Path path, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        WebPEncoder.encodeWithMetadata(image, path, options);
+    }
+
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality, boolean lossless) throws IOException {
         return WebPEncoder.encode(bufferedImage, quality, lossless);
     }
@@ -200,6 +212,18 @@ public final class WebPCodec {
      */
     public static byte[] encodeImage(BufferedImage bufferedImage, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
         return WebPEncoder.encode(bufferedImage, options);
+    }
+
+    public static void encodeImage(BufferedImage image, File file, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        WebPEncoder.encode(image, file, options);
+    }
+
+    public static void encodeImage(BufferedImage image, Path path, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        WebPEncoder.encode(image, path, options);
+    }
+
+    public static void encodeImage(BufferedImage image, OutputStream out, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        WebPEncoder.encode(image, out, options);
     }
 
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality, boolean lossless,

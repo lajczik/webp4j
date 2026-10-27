@@ -1,5 +1,7 @@
 package xyz.lychee.webp4j.codec;
 
+import xyz.lychee.webp4j.model.WebPEncoderOptions;
+
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -135,6 +137,34 @@ public final class BatchProcessor {
                 index -> WebPEncoder.encode(images.get(index), quality, lossless, false));
     }
 
+    /**
+     * Encodes a list of images to WebP in parallel using the shared internal pool and fine-grained options.
+     */
+    public static List<byte[]> encodeImages(List<BufferedImage> images, WebPEncoderOptions options) throws IOException {
+        return encodeImages(images, options, DefaultPool.INSTANCE);
+    }
+
+    /**
+     * Encodes a list of images to WebP in parallel using a caller-supplied executor and fine-grained options.
+     */
+    public static List<byte[]> encodeImages(List<BufferedImage> images, WebPEncoderOptions options,
+                                            ExecutorService executor) throws IOException {
+        if (images == null || images.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (options == null) {
+            throw new IllegalArgumentException("Options cannot be null");
+        }
+        requireExecutor(executor);
+        for (int i = 0; i < images.size(); i++) {
+            if (images.get(i) == null) {
+                throw new IllegalArgumentException("Image at index " + i + " is null");
+            }
+        }
+        WebPEncoderOptions opt = options.copy().setMultiThreaded(false);
+        return runBatch(executor, images.size(), index -> WebPEncoder.encode(images.get(index), opt));
+    }
+
     // ============================================
     // Decoding
     // ============================================
@@ -215,6 +245,28 @@ public final class BatchProcessor {
         requireExecutor(executor);
         streamBatch(images, executor, maxInFlight, consumer,
                 image -> WebPEncoder.encode(image, quality, lossless, false));
+    }
+
+    /**
+     * Encodes images from an iterator in parallel with fine-grained options, keeping bounded images in flight.
+     */
+    public static void encodeEach(Iterator<BufferedImage> images, WebPEncoderOptions options,
+                                  ResultConsumer<byte[]> consumer) throws IOException {
+        encodeEach(images, options, DefaultPool.INSTANCE, defaultWindow(), consumer);
+    }
+
+    /**
+     * Encodes images from an iterator in parallel with fine-grained options, using a caller-supplied executor.
+     */
+    public static void encodeEach(Iterator<BufferedImage> images, WebPEncoderOptions options,
+                                  ExecutorService executor, int maxInFlight,
+                                  ResultConsumer<byte[]> consumer) throws IOException {
+        if (options == null) {
+            throw new IllegalArgumentException("Options cannot be null");
+        }
+        requireExecutor(executor);
+        WebPEncoderOptions opt = options.copy().setMultiThreaded(false);
+        streamBatch(images, executor, maxInFlight, consumer, image -> WebPEncoder.encode(image, opt));
     }
 
     /**

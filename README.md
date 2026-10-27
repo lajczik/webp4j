@@ -432,17 +432,25 @@ The container parsers are overflow-safe: a hostile chunk size can neither make a
 
 ---
 
-## 🎚️ Encoder Options
+## 🎚️ Encoder Options & Metadata
 
-`WebPEncoderOptions` exposes libwebp's `WebPConfig` for static images:
+`WebPEncoderOptions` exposes libwebp's `WebPConfig` for static images and allows embedding container metadata (EXIF, ICC profile, XMP):
 
 ```java
 byte[] smallest = WebPEncoder.encode(image,
-        WebPEncoderOptions.lossless().setMethod(6).setQuality(100));   // lossless: quality = effort
+        WebPEncoderOptions.lossless(100).setMethod(6));   // lossless: effort 0..100
 
 byte[] photo = WebPEncoder.encode(image,
-        WebPEncoderOptions.lossy(80f).setSharpYuv(true).setAlphaQuality(90).setMethod(5));
+        WebPEncoderOptions.lossy(80f)
+                .setSharpYuv(true)
+                .setAlphaQuality(90)
+                .setMethod(5)
+                .setExif(exifBytes)
+                .setIccProfile(iccBytes)
+                .setXmp(xmpXml));
 ```
+
+`AnimatedWebPEncoder` also supports container metadata (`setExif`, `setIccProfile`, `setXmp`). Parallel batch and streaming operations in `BatchProcessor` (`encodeImages`, `encodeEach`) fully support `WebPEncoderOptions`.
 
 Options beyond quality/lossless need a native library built from 2.7.0 or later (older binaries throw `UnsupportedOperationException`).
 

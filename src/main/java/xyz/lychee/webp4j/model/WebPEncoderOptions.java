@@ -29,6 +29,9 @@ public final class WebPEncoderOptions {
     private boolean sharpYuv;
     private int targetSize;
     private boolean multiThreaded = true;
+    private byte[] exif;
+    private byte[] iccp;
+    private String xmp;
 
     private WebPEncoderOptions() {
     }
@@ -44,6 +47,11 @@ public final class WebPEncoderOptions {
         o.lossless = true;
         o.quality = SIMPLE_LOSSLESS_EFFORT;
         return o;
+    }
+
+    /** Lossless options with explicit compression effort (0 = fast, 100 = smallest). */
+    public static WebPEncoderOptions lossless(int effort) {
+        return lossless().setQuality(effort);
     }
 
     /**
@@ -152,6 +160,64 @@ public final class WebPEncoderOptions {
 
     public boolean isMultiThreaded() {
         return multiThreaded;
+    }
+
+    /** Sets raw EXIF metadata bytes to be embedded in the container. */
+    public WebPEncoderOptions setExif(byte[] exif) {
+        this.exif = exif != null ? exif.clone() : null;
+        return this;
+    }
+
+    /** Returns a defensive copy of the configured EXIF metadata bytes, or {@code null}. */
+    public byte[] getExif() {
+        return exif != null ? exif.clone() : null;
+    }
+
+    /** Sets raw ICC color profile bytes to be embedded in the container. */
+    public WebPEncoderOptions setIccProfile(byte[] iccp) {
+        this.iccp = iccp != null ? iccp.clone() : null;
+        return this;
+    }
+
+    /** Returns a defensive copy of the configured ICC profile bytes, or {@code null}. */
+    public byte[] getIccProfile() {
+        return iccp != null ? iccp.clone() : null;
+    }
+
+    /** Sets XMP metadata XML string to be embedded in the container. */
+    public WebPEncoderOptions setXmp(String xmp) {
+        this.xmp = xmp;
+        return this;
+    }
+
+    /** Returns the configured XMP metadata string, or {@code null}. */
+    public String getXmp() {
+        return xmp;
+    }
+
+    /** True if any container metadata (EXIF, ICC profile, or XMP) is configured. */
+    public boolean hasMetadata() {
+        return (exif != null && exif.length > 0)
+                || (iccp != null && iccp.length > 0)
+                || (xmp != null && !xmp.isEmpty());
+    }
+
+    /** Creates an independent copy of these options. */
+    public WebPEncoderOptions copy() {
+        WebPEncoderOptions o = new WebPEncoderOptions();
+        o.quality = this.quality;
+        o.lossless = this.lossless;
+        o.method = this.method;
+        o.nearLossless = this.nearLossless;
+        o.exact = this.exact;
+        o.alphaQuality = this.alphaQuality;
+        o.sharpYuv = this.sharpYuv;
+        o.targetSize = this.targetSize;
+        o.multiThreaded = this.multiThreaded;
+        o.exif = this.exif != null ? this.exif.clone() : null;
+        o.iccp = this.iccp != null ? this.iccp.clone() : null;
+        o.xmp = this.xmp;
+        return o;
     }
 
     /**

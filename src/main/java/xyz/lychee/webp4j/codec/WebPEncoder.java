@@ -91,26 +91,47 @@ public final class WebPEncoder {
         if (options == null) {
             throw new IllegalArgumentException("Options cannot be null.");
         }
-        if (!options.requiresAdvancedEncoder()) {
-            return encode(image, options.getQuality(), options.isLossless(), options.isMultiThreaded());
-        }
 
         boolean hasAlpha = image.getColorModel().hasAlpha();
-        int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
         byte[] encoded;
-        try {
-            encoded = NativeWebP.encodeAdvanced(pixels, image.getWidth(), image.getHeight(), hasAlpha,
-                    options.getQuality(), options.isLossless(), options.getMethod(), options.getNearLossless(),
-                    options.isExact(), options.getAlphaQuality(), options.isSharpYuv(), options.getTargetSize(),
-                    options.isMultiThreaded());
-        } catch (UnsatisfiedLinkError e) {
-            throw new UnsupportedOperationException(
-                    "The bundled native library does not export the extended encoder; rebuild the natives", e);
+        if (!options.requiresAdvancedEncoder()) {
+            encoded = encode(image, options.getQuality(), options.isLossless(), options.isMultiThreaded());
+        } else {
+            int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
+            try {
+                encoded = NativeWebP.encodeAdvanced(pixels, image.getWidth(), image.getHeight(), hasAlpha,
+                        options.getQuality(), options.isLossless(), options.getMethod(), options.getNearLossless(),
+                        options.isExact(), options.getAlphaQuality(), options.isSharpYuv(), options.getTargetSize(),
+                        options.isMultiThreaded());
+            } catch (UnsatisfiedLinkError e) {
+                throw new UnsupportedOperationException(
+                        "The bundled native library does not export the extended encoder; rebuild the natives", e);
+            }
+            if (encoded == null || encoded.length == 0) {
+                throw new IOException("WebP encoding with the given options failed.");
+            }
         }
-        if (encoded == null || encoded.length == 0) {
-            throw new IOException("WebP encoding with the given options failed.");
+
+        if (options.hasMetadata()) {
+            return wrapWithMetadata(encoded, image.getWidth(), image.getHeight(), hasAlpha,
+                    options.getExif(), options.getIccProfile(), options.getXmp());
         }
         return encoded;
+    }
+
+    public static void encode(BufferedImage image, File file, WebPEncoderOptions options) throws IOException {
+        Util.writeBytes(file, encode(image, options));
+    }
+
+    public static void encode(BufferedImage image, Path path, WebPEncoderOptions options) throws IOException {
+        Util.writeBytes(path, encode(image, options));
+    }
+
+    public static void encode(BufferedImage image, OutputStream out, WebPEncoderOptions options) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null.");
+        }
+        out.write(encode(image, options));
     }
 
     /**
@@ -226,6 +247,44 @@ public final class WebPEncoder {
      * @return Complete WebP file bytes assembled in Java
      * @throws IOException If encoding fails
      */
+    /**
+     * Encodes a static image using fine-grained {@link WebPEncoderOptions} and optional metadata
+     * configured directly on the options object.
+     *
+     * @param image   Input image
+     * @param options Encoder options with optional EXIF, ICCP, or XMP metadata
+     * @return Complete WebP file bytes
+     * @throws IOException If encoding fails
+     */
+    public static byte[] encodeWithMetadata(BufferedImage image, WebPEncoderOptions options) throws IOException {
+        return encode(image, options);
+    }
+
+    public static void encodeWithMetadata(BufferedImage image, File file, WebPEncoderOptions options) throws IOException {
+        encode(image, file, options);
+    }
+
+    public static void encodeWithMetadata(BufferedImage image, Path path, WebPEncoderOptions options) throws IOException {
+        encode(image, path, options);
+    }
+
+    public static void encodeWithMetadata(BufferedImage image, OutputStream out, WebPEncoderOptions options) throws IOException {
+        encode(image, out, options);
+    }
+
+    /**
+     * Encodes a static image and constructs the WebP container in Java, embedding optional metadata
+     * (VP8X + metadata chunks + VP8/VP8L bitstream).
+     *
+     * @param image    Input image
+     * @param quality  Lossy quality 0..100
+     * @param lossless True for lossless
+     * @param exif     Optional EXIF metadata bytes (or null)
+     * @param iccp     Optional ICC profile bytes (or null)
+     * @param xmp      Optional XMP XML string (or null)
+     * @return Complete WebP file bytes assembled in Java
+     * @throws IOException If encoding fails
+     */
     public static byte[] encodeWithMetadata(BufferedImage image, float quality, boolean lossless,
                                             byte[] exif, byte[] iccp, String xmp) throws IOException {
         if (image == null) {
@@ -236,17 +295,23 @@ public final class WebPEncoder {
         boolean hasAlpha = image.getColorModel().hasAlpha();
 
         byte[] bitstream = encode(image, quality, lossless, true);
+        return wrapWithMetadata(bitstream, width, height, hasAlpha, exif, iccp, xmp);
+    }
 
-        if (exif == null && iccp == null && xmp == null) {
+    static byte[] wrapWithMetadata(byte[] bitstream, int width, int height, boolean hasAlpha,
+                                   byte[] exif, byte[] iccp, String xmp) throws IOException {
+        if ((exif == null || exif.length == 0)
+                && (iccp == null || iccp.length == 0)
+                && (xmp == null || xmp.isEmpty())) {
             return bitstream;
         }
 
         Chunk[] imageChunks = ChunkFactory.getChunks(bitstream);
 
         int flags = (hasAlpha ? WebPContainerFlag.ALPHA.getMask() : 0)
-                | (iccp != null ? WebPContainerFlag.ICC_PROFILE.getMask() : 0)
-                | (exif != null ? WebPContainerFlag.EXIF.getMask() : 0)
-                | (xmp != null ? WebPContainerFlag.XMP.getMask() : 0);
+                | (iccp != null && iccp.length > 0 ? WebPContainerFlag.ICC_PROFILE.getMask() : 0)
+                | (exif != null && exif.length > 0 ? WebPContainerFlag.EXIF.getMask() : 0)
+                | (xmp != null && !xmp.isEmpty() ? WebPContainerFlag.XMP.getMask() : 0);
 
         List<Chunk> containerChunks = new ArrayList<>();
         containerChunks.add(new VP8XChunk(flags, width, height));
