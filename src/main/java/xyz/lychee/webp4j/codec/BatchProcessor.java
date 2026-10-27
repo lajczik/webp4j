@@ -1,15 +1,15 @@
 package xyz.lychee.webp4j.codec;
 
-import xyz.lychee.webp4j.WebPCodec;
-import xyz.lychee.webp4j.codec.WebPDecoder;
-import xyz.lychee.webp4j.codec.WebPEncoder;
-
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * Each image in a batch is encoded or decoded independently of the others, so
  * the work fans out across a thread pool for real multi-core speedup. The heavy
- * native compression in {@link WebPCodec#encodeImage} runs after the JNI array
+ * native compression in {@link WebPEncoder#encode} runs after the JNI array
  * critical section is released and native methods hold no JVM-wide lock, so
  * multiple Java threads call into libwebp concurrently without contention.
  * <p>
@@ -34,10 +34,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * of separate images are safe; sharing one mutable {@link BufferedImage} across
  * the batch while it is being modified externally is not.
  * <p>
- * Methods come in two flavours: a convenience form that uses a shared internal
- * pool sized to the available processors, and a form that accepts a caller-owned
- * {@link ExecutorService} for environments that need to cap or share threads.
- * A caller-supplied executor is never shut down by this class.
+ * Three flavours are offered:
+ * <ul>
+ *   <li>list methods ({@link #encodeImages}, {@link #decodeImages}) for batches that fit in memory;</li>
+ *   <li>the same with a caller-owned {@link ExecutorService} for environments that need to cap or
+ *       share threads (a caller-supplied executor is never shut down by this class);</li>
+ *   <li>streaming methods ({@link #encodeEach}, {@link #decodeEach}) that keep only a bounded window
+ *       of images in flight, for sequences too large to hold in memory.</li>
+ * </ul>
  *
  * @author MrNanko
  * @author lajczik
@@ -173,6 +177,118 @@ public final class BatchProcessor {
     }
 
     // ============================================
+    // Streaming (bounded memory)
+    // ============================================
+
+    /**
+     * Receives one result of a streaming batch. Called on the caller's thread, in input order.
+     */
+    @FunctionalInterface
+    public interface ResultConsumer<T> {
+        void accept(int index, T result) throws IOException;
+    }
+
+    /**
+     * Encodes images from an iterator in parallel and hands each result to {@code consumer} in input
+     * order, keeping at most {@code 2 x threads} images in flight. Unlike
+     * {@link #encodeImages(List, float, boolean)} neither all inputs nor all results are held in memory,
+     * so arbitrarily long sequences (for example a directory of photos) can be processed.
+     *
+     * @param images   Source of images; a null element is rejected
+     * @param quality  Quality factor (0-100), ignored when lossless
+     * @param lossless True for lossless encoding
+     * @param consumer Receives (index, encoded bytes) in input order
+     * @throws IOException If encoding fails or the consumer throws (remaining work is cancelled)
+     */
+    public static void encodeEach(Iterator<BufferedImage> images, float quality, boolean lossless,
+                                  ResultConsumer<byte[]> consumer) throws IOException {
+        encodeEach(images, quality, lossless, DefaultPool.INSTANCE, defaultWindow(), consumer);
+    }
+
+    /**
+     * Same as {@link #encodeEach(Iterator, float, boolean, ResultConsumer)} with a caller-supplied
+     * executor and in-flight window.
+     */
+    public static void encodeEach(Iterator<BufferedImage> images, float quality, boolean lossless,
+                                  ExecutorService executor, int maxInFlight,
+                                  ResultConsumer<byte[]> consumer) throws IOException {
+        requireExecutor(executor);
+        streamBatch(images, executor, maxInFlight, consumer,
+                image -> WebPEncoder.encode(image, quality, lossless, false));
+    }
+
+    /**
+     * Decodes WebP byte arrays from an iterator in parallel and hands each image to {@code consumer}
+     * in input order, keeping at most {@code 2 x threads} images in flight.
+     */
+    public static void decodeEach(Iterator<byte[]> encodedImages, ResultConsumer<BufferedImage> consumer)
+            throws IOException {
+        decodeEach(encodedImages, DefaultPool.INSTANCE, defaultWindow(), consumer);
+    }
+
+    /**
+     * Same as {@link #decodeEach(Iterator, ResultConsumer)} with a caller-supplied executor and window.
+     */
+    public static void decodeEach(Iterator<byte[]> encodedImages, ExecutorService executor, int maxInFlight,
+                                  ResultConsumer<BufferedImage> consumer) throws IOException {
+        requireExecutor(executor);
+        streamBatch(encodedImages, executor, maxInFlight, consumer, WebPDecoder::decode);
+    }
+
+    private static int defaultWindow() {
+        return Math.max(2, Runtime.getRuntime().availableProcessors() * 2);
+    }
+
+    @FunctionalInterface
+    private interface ValueTask<I, T> {
+        T run(I input) throws IOException;
+    }
+
+    private static <I, T> void streamBatch(Iterator<I> inputs, ExecutorService executor, int maxInFlight,
+                                           ResultConsumer<T> consumer, ValueTask<I, T> task) throws IOException {
+        if (inputs == null || consumer == null) {
+            throw new IllegalArgumentException("Inputs and consumer cannot be null");
+        }
+        if (maxInFlight < 1) {
+            throw new IllegalArgumentException("maxInFlight must be at least 1");
+        }
+
+        ArrayDeque<Future<T>> window = new ArrayDeque<>();
+        int submitted = 0;
+        int delivered = 0;
+        try {
+            while (inputs.hasNext() || !window.isEmpty()) {
+                while (inputs.hasNext() && window.size() < maxInFlight) {
+                    final I input = inputs.next();
+                    if (input == null) {
+                        throw new IllegalArgumentException("Input at index " + submitted + " is null");
+                    }
+                    window.add(executor.submit(() -> task.run(input)));
+                    submitted++;
+                }
+                consumer.accept(delivered, await(window.poll(), delivered));
+                delivered++;
+            }
+        } catch (IOException | RuntimeException e) {
+            cancelAll(window);
+            throw e;
+        }
+    }
+
+    private static <T> T await(Future<T> future, int index) throws IOException {
+        try {
+            return future.get();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            throw new IOException("Batch processing failed at index " + index
+                    + (cause != null && cause.getMessage() != null ? ": " + cause.getMessage() : ""), cause);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Batch processing was interrupted at index " + index, e);
+        }
+    }
+
+    // ============================================
     // Internal
     // ============================================
 
@@ -185,38 +301,72 @@ public final class BatchProcessor {
         T run(int index) throws IOException;
     }
 
+    /** Carries the index of the failed task through the executor. */
+    private static final class IndexedFailure extends Exception {
+        private static final long serialVersionUID = 1L;
+        final int index;
+
+        IndexedFailure(int index, Throwable cause) {
+            super(cause);
+            this.index = index;
+        }
+    }
+
+    /** A completed task together with the index it belongs to. */
+    private static final class IndexedResult<T> {
+        final int index;
+        final T value;
+
+        IndexedResult(int index, T value) {
+            this.index = index;
+            this.value = value;
+        }
+    }
+
     /**
-     * Submits {@code size} indexed tasks, then collects their results in submission
-     * order so the output mirrors the input order. Fails fast: the first task to
-     * throw cancels the rest and surfaces as an {@link IOException} naming the index.
+     * Submits {@code size} indexed tasks and collects their results in input order. Fails fast: the
+     * first task to <em>complete</em> with an error (not the first in input order) cancels the rest and
+     * surfaces as an {@link IOException} naming the failing index.
      */
     private static <T> List<T> runBatch(ExecutorService executor, int size, IndexedTask<T> task) throws IOException {
-        List<Future<T>> futures = new ArrayList<>(size);
+        CompletionService<IndexedResult<T>> completion = new ExecutorCompletionService<>(executor);
+        List<Future<IndexedResult<T>>> futures = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
             final int index = i;
-            futures.add(executor.submit(() -> task.run(index)));
+            futures.add(completion.submit(() -> {
+                try {
+                    return new IndexedResult<>(index, task.run(index));
+                } catch (Exception | Error e) {
+                    throw new IndexedFailure(index, e);
+                }
+            }));
         }
 
-        List<T> results = new ArrayList<>(size);
-        int i = 0;
+        List<T> results = new ArrayList<>(Collections.<T>nCopies(size, null));
         try {
-            for (; i < size; i++) {
-                results.add(futures.get(i).get());
+            for (int done = 0; done < size; done++) {
+                IndexedResult<T> r = completion.take().get();
+                results.set(r.index, r.value);
             }
         } catch (ExecutionException e) {
             cancelAll(futures);
             Throwable cause = e.getCause();
-            throw new IOException("Batch processing failed at index " + i
+            int index = -1;
+            if (cause instanceof IndexedFailure) {
+                index = ((IndexedFailure) cause).index;
+                cause = cause.getCause();
+            }
+            throw new IOException("Batch processing failed at index " + index
                     + (cause != null && cause.getMessage() != null ? ": " + cause.getMessage() : ""), cause);
         } catch (InterruptedException e) {
             cancelAll(futures);
             Thread.currentThread().interrupt();
-            throw new IOException("Batch processing was interrupted at index " + i, e);
+            throw new IOException("Batch processing was interrupted", e);
         }
         return Collections.unmodifiableList(results);
     }
 
-    private static void cancelAll(List<? extends Future<?>> futures) {
+    private static void cancelAll(Iterable<? extends Future<?>> futures) {
         for (Future<?> f : futures) {
             f.cancel(true);
         }

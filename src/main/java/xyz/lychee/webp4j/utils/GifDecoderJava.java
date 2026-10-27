@@ -10,6 +10,7 @@ import javax.imageio.ImageReader;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.metadata.IIOMetadataNode;
 import javax.imageio.stream.ImageInputStream;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -28,6 +29,9 @@ import java.util.List;
 public final class GifDecoderJava {
 
     private static final String GRAPHIC_CONTROL_EXTENSION = "GraphicControlExtension";
+
+    /** Delay used when a GIF frame declares none (matches the native decoder and browsers). */
+    private static final int DEFAULT_DELAY_MS = 100;
 
     private GifDecoderJava() {
         throw new AssertionError("Cannot instantiate utility class.");
@@ -55,6 +59,15 @@ public final class GifDecoderJava {
         public boolean hasTransparency;
     }
 
+    /** Per-frame values read from a single pass over the frame metadata tree. */
+    private static final class FrameMeta {
+        int delayMs = DEFAULT_DELAY_MS;
+        int disposeMethod;
+        int transparentIndex = -1;
+        int left;
+        int top;
+    }
+
     /**
      * Decodes a GIF from a byte array using Java ImageIO.
      * Extracts all frames, delays, disposal methods, and loop count.
@@ -64,7 +77,8 @@ public final class GifDecoderJava {
      * @throws IOException If decoding fails
      */
     public static GifData decodeGif(byte[] gifBytes) throws IOException {
-        try (ImageInputStream stream = ImageIO.createImageInputStream(new ByteArrayInputStream(gifBytes))) {
+        // A memory-backed stream: ImageIO.createImageInputStream would spill to a temporary file.
+        try (ImageInputStream stream = new MemoryCacheImageInputStream(new ByteArrayInputStream(gifBytes))) {
             Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
             if (!readers.hasNext()) {
                 throw new IOException("No GIF image reader found");
@@ -78,36 +92,39 @@ public final class GifDecoderJava {
                 data.frames = new ArrayList<>();
 
                 int numImages = reader.getNumImages(true);
+                if (numImages <= 0) {
+                    throw new IOException("GIF contains no decodable frames");
+                }
+                if (numImages > WebPLimits.getMaxFrames()) {
+                    throw new IOException("GIF has " + numImages + " frames, the limit is " + WebPLimits.getMaxFrames());
+                }
 
-                // Extract loop count from stream metadata
                 IIOMetadata streamMetadata = reader.getStreamMetadata();
                 data.loopCount = extractLoopCount(streamMetadata);
+                int[] screen = extractLogicalScreen(streamMetadata);
 
-                // Read each frame
                 for (int i = 0; i < numImages; i++) {
                     BufferedImage image = reader.read(i);
-                    IIOMetadata frameMetadata = reader.getImageMetadata(i);
+                    FrameMeta meta = readFrameMeta(reader.getImageMetadata(i));
 
                     GifFrame frame = new GifFrame();
                     frame.image = image;
-                    frame.delayMs = extractFrameDelay(frameMetadata);
-                    frame.disposeMethod = extractDisposeMethod(frameMetadata);
+                    frame.delayMs = meta.delayMs;
+                    frame.disposeMethod = meta.disposeMethod;
+                    frame.leftOffset = meta.left;
+                    frame.topOffset = meta.top;
 
-                    // Extract frame position
-                    int[] offsets = extractFramePosition(frameMetadata);
-                    frame.leftOffset = offsets[0];
-                    frame.topOffset = offsets[1];
-
-                    // Check for transparency
-                    if (image.getColorModel().hasAlpha() || extractTransparencyIndex(frameMetadata) >= 0) {
+                    if (image.getColorModel().hasAlpha() || meta.transparentIndex >= 0) {
                         data.hasTransparency = true;
                     }
 
                     data.frames.add(frame);
 
                     if (i == 0) {
-                        data.width = image.getWidth();
-                        data.height = image.getHeight();
+                        // The canvas is the logical screen; the first frame may be a smaller sub-rectangle.
+                        data.width = screen != null ? screen[0] : image.getWidth();
+                        data.height = screen != null ? screen[1] : image.getHeight();
+                        WebPLimits.checkImage(data.width, data.height);
                     }
                 }
 
@@ -115,6 +132,30 @@ public final class GifDecoderJava {
             } finally {
                 reader.dispose();
             }
+        }
+    }
+
+    /**
+     * Reads the logical screen size (the animation canvas) from the stream metadata.
+     *
+     * @return {width, height}, or null if the metadata does not provide it
+     */
+    private static int[] extractLogicalScreen(IIOMetadata metadata) {
+        if (metadata == null) {
+            return null;
+        }
+        Node root = metadata.getAsTree(metadata.getNativeMetadataFormatName());
+        NodeList nodes = ((IIOMetadataNode) root).getElementsByTagName("LogicalScreenDescriptor");
+        if (nodes.getLength() == 0) {
+            return null;
+        }
+        IIOMetadataNode node = (IIOMetadataNode) nodes.item(0);
+        try {
+            int w = Integer.parseInt(node.getAttribute("logicalScreenWidth"));
+            int h = Integer.parseInt(node.getAttribute("logicalScreenHeight"));
+            return w > 0 && h > 0 ? new int[]{w, h} : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -193,139 +234,69 @@ public final class GifDecoderJava {
     }
 
     /**
-     * Extracts frame delay from Graphics Control Extension.
-     *
-     * @param metadata Frame metadata
-     * @return Frame delay in milliseconds (default 100ms if not specified)
+     * Reads delay, disposal method, transparency and position of a frame in a single pass over
+     * its metadata tree (building the tree is the expensive part).
      */
-    private static int extractFrameDelay(IIOMetadata metadata) {
+    private static FrameMeta readFrameMeta(IIOMetadata metadata) {
+        FrameMeta meta = new FrameMeta();
         if (metadata == null) {
-            return 100;  // Default delay
+            return meta;
         }
 
-        String nativeMetadataFormatName = metadata.getNativeMetadataFormatName();
-        Node root = metadata.getAsTree(nativeMetadataFormatName);
+        IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(metadata.getNativeMetadataFormatName());
 
-        NodeList graphicControlExtensions = ((IIOMetadataNode) root).getElementsByTagName(GRAPHIC_CONTROL_EXTENSION);
-        if (graphicControlExtensions.getLength() > 0) {
-            IIOMetadataNode gceNode = (IIOMetadataNode) graphicControlExtensions.item(0);
-            String delayTimeStr = gceNode.getAttribute("delayTime");
-            if (!delayTimeStr.isEmpty()) {
+        NodeList gces = root.getElementsByTagName(GRAPHIC_CONTROL_EXTENSION);
+        if (gces.getLength() > 0) {
+            IIOMetadataNode gce = (IIOMetadataNode) gces.item(0);
+
+            String delay = gce.getAttribute("delayTime");
+            if (!delay.isEmpty()) {
                 try {
-                    // delayTime is in 1/100 seconds, convert to milliseconds
-                    int delayTime = Integer.parseInt(delayTimeStr);
-                    return delayTime * 10;
-                } catch (NumberFormatException e) {
-                    // Ignore and use default
+                    // delayTime is in 1/100 seconds; 0 means "unspecified"
+                    int centis = Integer.parseInt(delay);
+                    meta.delayMs = centis > 0 ? centis * 10 : DEFAULT_DELAY_MS;
+                } catch (NumberFormatException ignored) {
+                    // keep the default
+                }
+            }
+
+            // disposalMethod: none, doNotDispose, restoreToBackgroundColor, restoreToPrevious
+            String disposal = gce.getAttribute("disposalMethod");
+            if ("restoreToBackgroundColor".equals(disposal)) {
+                meta.disposeMethod = 2;
+            } else if ("restoreToPrevious".equals(disposal)) {
+                meta.disposeMethod = 3;
+            }
+
+            String flag = gce.getAttribute("transparentColorFlag");
+            String index = gce.getAttribute("transparentColorIndex");
+            if ("true".equals(flag) && !index.isEmpty()) {
+                try {
+                    meta.transparentIndex = Integer.parseInt(index);
+                } catch (NumberFormatException ignored) {
+                    // no transparency
                 }
             }
         }
 
-        return 100;  // Default delay
-    }
-
-    /**
-     * Extracts disposal method from Graphics Control Extension.
-     *
-     * @param metadata Frame metadata
-     * @return Disposal method (0=NONE, 1=NONE, 2=BACKGROUND, 3=RESTORE_PREVIOUS)
-     */
-    private static int extractDisposeMethod(IIOMetadata metadata) {
-        if (metadata == null) {
-            return 0;  // NONE
-        }
-
-        String nativeMetadataFormatName = metadata.getNativeMetadataFormatName();
-        Node root = metadata.getAsTree(nativeMetadataFormatName);
-
-        NodeList graphicControlExtensions = ((IIOMetadataNode) root).getElementsByTagName(GRAPHIC_CONTROL_EXTENSION);
-        if (graphicControlExtensions.getLength() > 0) {
-            IIOMetadataNode gceNode = (IIOMetadataNode) graphicControlExtensions.item(0);
-            String disposalMethodStr = gceNode.getAttribute("disposalMethod");
-            if (!disposalMethodStr.isEmpty()) {
-                try {
-                    // disposalMethod: none, doNotDispose, restoreToBackgroundColor, restoreToPrevious
-                    if ("restoreToBackgroundColor".equals(disposalMethodStr)) {
-                        return 2;
-                    } else if ("restoreToPrevious".equals(disposalMethodStr)) {
-                        return 3;
-                    }
-                } catch (Exception e) {
-                    // Ignore and use default
-                }
-            }
-        }
-
-        return 0;  // Default: NONE
-    }
-
-    /**
-     * Extracts transparent color index from Graphics Control Extension.
-     *
-     * @param metadata Frame metadata
-     * @return Transparent color index, or -1 if no transparency
-     */
-    private static int extractTransparencyIndex(IIOMetadata metadata) {
-        if (metadata == null) {
-            return -1;
-        }
-
-        String nativeMetadataFormatName = metadata.getNativeMetadataFormatName();
-        Node root = metadata.getAsTree(nativeMetadataFormatName);
-
-        NodeList graphicControlExtensions = ((IIOMetadataNode) root).getElementsByTagName(GRAPHIC_CONTROL_EXTENSION);
-        if (graphicControlExtensions.getLength() > 0) {
-            IIOMetadataNode gceNode = (IIOMetadataNode) graphicControlExtensions.item(0);
-            String transparentColorFlagStr = gceNode.getAttribute("transparentColorFlag");
-            String transparentColorIndexStr = gceNode.getAttribute("transparentColorIndex");
-
-            if ("true".equals(transparentColorFlagStr) && !transparentColorIndexStr.isEmpty()) {
-                try {
-                    return Integer.parseInt(transparentColorIndexStr);
-                } catch (NumberFormatException e) {
-                    // Ignore
-                }
-            }
-        }
-
-        return -1;  // No transparency
-    }
-
-    /**
-     * Extracts frame position (left and top offsets) from Image Descriptor.
-     *
-     * @param metadata Frame metadata
-     * @return int array [leftOffset, topOffset]
-     */
-    private static int[] extractFramePosition(IIOMetadata metadata) {
-        int[] offsets = new int[]{0, 0};
-
-        if (metadata == null) {
-            return offsets;
-        }
-
-        String nativeMetadataFormatName = metadata.getNativeMetadataFormatName();
-        Node root = metadata.getAsTree(nativeMetadataFormatName);
-
-        NodeList imageDescriptors = ((IIOMetadataNode) root).getElementsByTagName("ImageDescriptor");
-        if (imageDescriptors.getLength() > 0) {
-            IIOMetadataNode idNode = (IIOMetadataNode) imageDescriptors.item(0);
-            String imageLeftPositionStr = idNode.getAttribute("imageLeftPosition");
-            String imageTopPositionStr = idNode.getAttribute("imageTopPosition");
-
+        NodeList descriptors = root.getElementsByTagName("ImageDescriptor");
+        if (descriptors.getLength() > 0) {
+            IIOMetadataNode descriptor = (IIOMetadataNode) descriptors.item(0);
             try {
-                if (!imageLeftPositionStr.isEmpty()) {
-                    offsets[0] = Integer.parseInt(imageLeftPositionStr);
+                String left = descriptor.getAttribute("imageLeftPosition");
+                String top = descriptor.getAttribute("imageTopPosition");
+                if (!left.isEmpty()) {
+                    meta.left = Integer.parseInt(left);
                 }
-                if (!imageTopPositionStr.isEmpty()) {
-                    offsets[1] = Integer.parseInt(imageTopPositionStr);
+                if (!top.isEmpty()) {
+                    meta.top = Integer.parseInt(top);
                 }
-            } catch (NumberFormatException e) {
-                // Ignore and use default (0, 0)
+            } catch (NumberFormatException ignored) {
+                // keep (0, 0)
             }
         }
 
-        return offsets;
+        return meta;
     }
 
     /**
@@ -337,7 +308,7 @@ public final class GifDecoderJava {
      * @return true on success, false on failure
      */
     public static boolean getGifInfo(byte[] gifBytes, AnimationInfo info) {
-        try (ImageInputStream stream = ImageIO.createImageInputStream(new ByteArrayInputStream(gifBytes))) {
+        try (ImageInputStream stream = new MemoryCacheImageInputStream(new ByteArrayInputStream(gifBytes))) {
             Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
             if (!readers.hasNext()) {
                 return false;
@@ -350,19 +321,16 @@ public final class GifDecoderJava {
                 int numImages = reader.getNumImages(true);
                 info.setFrameCount(numImages);
 
-                info.setWidth(reader.getWidth(0));
-                info.setHeight(reader.getHeight(0));
-
                 IIOMetadata streamMetadata = reader.getStreamMetadata();
+                int[] screen = extractLogicalScreen(streamMetadata);
+                info.setWidth(screen != null ? screen[0] : reader.getWidth(0));
+                info.setHeight(screen != null ? screen[1] : reader.getHeight(0));
                 info.setLoopCount(extractLoopCount(streamMetadata));
 
                 // Check for transparency in any frame
                 boolean hasTransparency = false;
                 for (int i = 0; i < numImages && !hasTransparency; i++) {
-                    IIOMetadata frameMetadata = reader.getImageMetadata(i);
-                    if (extractTransparencyIndex(frameMetadata) >= 0) {
-                        hasTransparency = true;
-                    }
+                    hasTransparency = readFrameMeta(reader.getImageMetadata(i)).transparentIndex >= 0;
                 }
                 info.setHasTransparency(hasTransparency);
 

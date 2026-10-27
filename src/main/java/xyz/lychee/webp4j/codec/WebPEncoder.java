@@ -2,6 +2,7 @@ package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.WebPContainerFlag;
+import xyz.lychee.webp4j.model.WebPEncoderOptions;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.utils.Util;
@@ -44,7 +45,7 @@ public final class WebPEncoder {
             throw new IllegalArgumentException("The input image cannot be null.");
         }
 
-        if (!lossless && (quality < 0f || quality > 100f)) {
+        if (!lossless && (Float.isNaN(quality) || quality < 0f || quality > 100f)) {
             throw new IllegalArgumentException("Quality must be between 0 and 100, but was " + quality + ".");
         }
 
@@ -67,6 +68,49 @@ public final class WebPEncoder {
         }
 
         return encodedWebP;
+    }
+
+    /**
+     * Encodes a BufferedImage with fine-grained libwebp options (method, near-lossless, exact alpha,
+     * alpha quality, sharp YUV, target size, lossless effort).
+     * <p>
+     * Options that the basic encoder already covers are served by the same native entry point as
+     * {@link #encode(BufferedImage, float, boolean, boolean)}; anything else needs a native library
+     * that exports the extended encoder.
+     *
+     * @param image   Input BufferedImage
+     * @param options Encoder options, see {@link WebPEncoderOptions}
+     * @return WebP encoded byte array
+     * @throws IOException                   If encoding fails
+     * @throws UnsupportedOperationException If the bundled native library predates the extended encoder
+     */
+    public static byte[] encode(BufferedImage image, WebPEncoderOptions options) throws IOException {
+        if (image == null) {
+            throw new IllegalArgumentException("The input image cannot be null.");
+        }
+        if (options == null) {
+            throw new IllegalArgumentException("Options cannot be null.");
+        }
+        if (!options.requiresAdvancedEncoder()) {
+            return encode(image, options.getQuality(), options.isLossless(), options.isMultiThreaded());
+        }
+
+        boolean hasAlpha = image.getColorModel().hasAlpha();
+        int[] pixels = PixelConverter.toArgbPixels(image, hasAlpha);
+        byte[] encoded;
+        try {
+            encoded = NativeWebP.encodeAdvanced(pixels, image.getWidth(), image.getHeight(), hasAlpha,
+                    options.getQuality(), options.isLossless(), options.getMethod(), options.getNearLossless(),
+                    options.isExact(), options.getAlphaQuality(), options.isSharpYuv(), options.getTargetSize(),
+                    options.isMultiThreaded());
+        } catch (UnsatisfiedLinkError e) {
+            throw new UnsupportedOperationException(
+                    "The bundled native library does not export the extended encoder; rebuild the natives", e);
+        }
+        if (encoded == null || encoded.length == 0) {
+            throw new IOException("WebP encoding with the given options failed.");
+        }
+        return encoded;
     }
 
     /**
@@ -97,7 +141,7 @@ public final class WebPEncoder {
         if (out == null) {
             throw new IllegalArgumentException("OutputStream cannot be null.");
         }
-        out.write(encode(image, quality, quality >= 100, true));
+        out.write(encode(image, quality, false, true));
     }
 
     /**

@@ -2,9 +2,9 @@ package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.model.AnimationInfo;
 import xyz.lychee.webp4j.model.GifToWebPConfig;
+import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.GifDecoderJava;
-import xyz.lychee.webp4j.utils.PixelConverter;
 import xyz.lychee.webp4j.utils.Util;
 
 import java.awt.AlphaComposite;
@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Converter for transforming GIF images to WebP format.
@@ -32,6 +34,8 @@ import java.nio.file.Path;
  * @author lajczik
  */
 public final class GifToWebPConverter {
+
+    private static final Logger LOG = Logger.getLogger(GifToWebPConverter.class.getName());
 
     private GifToWebPConverter() {
         throw new AssertionError("Cannot instantiate utility class.");
@@ -61,7 +65,7 @@ public final class GifToWebPConverter {
             if (success) {
                 return info;
             }
-        } catch (UnsatisfiedLinkError e) {
+        } catch (LinkageError | UnsupportedOperationException e) {
             // Native library not available, fall back to Java ImageIO
         }
 
@@ -120,10 +124,9 @@ public final class GifToWebPConverter {
             throw new IllegalArgumentException("Config cannot be null");
         }
 
-        // Try native path first (giflib + JNI) for best performance
-        byte[] result = null;
+        // Try native path first (giflib) for best performance
         try {
-            result = NativeWebP.encodeGifToWebP(
+            byte[] result = NativeWebP.encodeGifToWebP(
                     gifData,
                     config.getQuality(),
                     config.isLossless(),
@@ -140,16 +143,12 @@ public final class GifToWebPConverter {
             if (result != null && result.length > 0) {
                 return result;  // Success via native path
             }
-        } catch (UnsatisfiedLinkError e) {
-            // Native library not available, fall back to Java ImageIO
+        } catch (LinkageError | UnsupportedOperationException e) {
+            LOG.log(Level.FINE, "Native GIF conversion unavailable, using the Java ImageIO decoder", e);
         }
 
-        // If native path returned null or failed to load, try Java ImageIO fallback
-        if (result == null) {
-            return convertUsingJavaImageIO(gifData, config);
-        }
-
-        throw new IOException("Native GIF encoding returned empty result");
+        // The native path is missing or rejected the data (for example a corrupt GIF): use the Java decoder
+        return convertUsingJavaImageIO(gifData, config);
     }
 
     /**
@@ -211,7 +210,7 @@ public final class GifToWebPConverter {
         GifDecoderJava.GifData gif = GifDecoderJava.decodeGif(gifData);
 
         if (config.isExtractFirstFrameOnly() || gif.frames.size() == 1) {
-            BufferedImage firstFrame = gif.frames.get(0).image;
+            BufferedImage firstFrame = composeStill(gif);
             return encodeSingleFrame(firstFrame, config.getQuality(), config.isLossless(),
                     config.isMultiThreaded());
         }
@@ -224,18 +223,36 @@ public final class GifToWebPConverter {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         int loopCount = config.getLoopCount() == -1 ? gif.loopCount : config.getLoopCount();
 
-        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, gif.hasTransparency, gif.frames.size(),
-                gif.width, gif.height, loopCount, 0)) {
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, gif.width, gif.height, loopCount, 0)) {
             for (int i = 0; i < gif.frames.size(); i++) {
                 previousFrame = composeFrame(gif, i, canvas, previousFrame);
                 int duration = gif.frames.get(i).delayMs;
+                // Every frame is a complete composite of the canvas, so it must replace (not blend with) the previous one.
                 encoder.setFrame(i, canvasPixels.clone(), 0, 0, gif.width, gif.height,
-                        duration, 0, config.getQuality(), config.isLossless());
+                        duration, WebPFrameFlag.NO_BLEND.getMask(), config.getQuality(), config.isLossless());
             }
-            encoder.flush();
         }
 
         return baos.toByteArray();
+    }
+
+    /**
+     * Places the first frame on the logical screen (frames may be smaller than the canvas and offset).
+     */
+    private static BufferedImage composeStill(GifDecoderJava.GifData gif) {
+        GifDecoderJava.GifFrame frame = gif.frames.get(0);
+        if (frame.leftOffset == 0 && frame.topOffset == 0
+                && frame.image.getWidth() == gif.width && frame.image.getHeight() == gif.height) {
+            return frame.image;
+        }
+        BufferedImage canvas = new BufferedImage(gif.width, gif.height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = canvas.createGraphics();
+        try {
+            g2d.drawImage(frame.image, frame.leftOffset, frame.topOffset, null);
+        } finally {
+            g2d.dispose();
+        }
+        return canvas;
     }
 
     /**
@@ -294,6 +311,7 @@ public final class GifToWebPConverter {
             }
             Graphics2D g2d = updatedPreviousFrame.createGraphics();
             try {
+                g2d.setComposite(AlphaComposite.Src);
                 g2d.drawImage(canvas, 0, 0, null);
             } finally {
                 g2d.dispose();

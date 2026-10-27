@@ -2,26 +2,28 @@ package xyz.lychee.webp4j.codec;
 
 import xyz.lychee.webp4j.chunks.Chunk;
 import xyz.lychee.webp4j.chunks.ChunkFactory;
-import xyz.lychee.webp4j.chunks.EXIFChunk;
-import xyz.lychee.webp4j.chunks.ICCPChunk;
-import xyz.lychee.webp4j.chunks.XMPChunk;
 import xyz.lychee.webp4j.model.VP8StatusCode;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 import xyz.lychee.webp4j.model.WebPContainerFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.ImageHelper;
 import xyz.lychee.webp4j.utils.PixelConverter;
+import xyz.lychee.webp4j.utils.RiffScanner;
 import xyz.lychee.webp4j.utils.Util;
+import xyz.lychee.webp4j.utils.WebPLimits;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -31,16 +33,21 @@ import java.util.List;
  */
 public final class WebPDecoder {
 
+    /** Number of leading file bytes that is always sufficient to read dimensions, format and flags. */
+    private static final int HEADER_PROBE_BYTES = 64;
+
     private WebPDecoder() {
         throw new AssertionError("Cannot instantiate utility class.");
     }
 
     /**
      * Decodes a WebP image (stored as a byte array) into an RGB/RGBA BufferedImage.
+     * <p>
+     * The declared image size is checked against {@link WebPLimits} before the pixel buffer is allocated.
      *
      * @param webPData Byte array containing WebP image data
      * @return Decoded BufferedImage
-     * @throws IOException              If decoding fails or input is invalid
+     * @throws IOException              If decoding fails, input is invalid or exceeds the configured limits
      * @throws IllegalArgumentException If webPData is null or empty
      */
     public static BufferedImage decode(byte[] webPData) throws IOException {
@@ -52,6 +59,7 @@ public final class WebPDecoder {
         int width = features.getWidth();
         int height = features.getHeight();
         boolean hasAlpha = features.isHasAlpha();
+        WebPLimits.checkImage(width, height);
 
         int[] pixels = new int[width * height];
         if (!decodeInto(webPData, pixels, width * 4)) {
@@ -91,7 +99,7 @@ public final class WebPDecoder {
 
     /**
      * Decodes the first frame of a WebP file, whether it is a static WebP or an animated WebP.
-     * Ideal for generating thumbnails or preview rasters.
+     * Ideal for generating thumbnails or preview rasters. For animations only the first frame is decoded.
      *
      * @param webPData WebP image data
      * @return First frame as a BufferedImage
@@ -99,7 +107,7 @@ public final class WebPDecoder {
      */
     public static BufferedImage decodeFirstFrame(byte[] webPData) throws IOException {
         if (isAnimated(webPData)) {
-            return AnimatedWebPDecoder.decodeFrame(webPData, 0).getImage();
+            return AnimatedWebPDecoder.decodeFirstFrame(webPData).getImage();
         }
         return decode(webPData);
     }
@@ -162,52 +170,46 @@ public final class WebPDecoder {
         try {
             WebPBitstreamFeatures features = WebPBitstreamFeatures.parse(webPData);
             return new int[]{features.getWidth(), features.getHeight()};
-        } catch (Exception e) {
-            try {
-                if (NativeWebP.isAvailable()) {
+        } catch (IOException | RuntimeException e) {
+            if (NativeWebP.isAvailable()) {
+                try {
                     int[] dimensions = new int[2];
                     if (NativeWebP.getInfo(webPData, dimensions)) {
                         return dimensions;
                     }
+                } catch (LinkageError | RuntimeException nativeFailure) {
+                    e.addSuppressed(nativeFailure);
                 }
-            } catch (Throwable ignored) {
             }
             throw new IOException("Failed to retrieve WebP image information: " + e.getMessage(), e);
         }
     }
 
+    /**
+     * Retrieves the dimensions of a WebP file, reading only its first bytes when possible.
+     */
     public static int[] getInfo(File file) throws IOException {
         if (file == null) {
             throw new IllegalArgumentException("File cannot be null");
         }
-        try (InputStream in = new FileInputStream(file)) {
-            byte[] header = new byte[64];
-            int read = in.read(header);
-            if (read >= 30) {
-                try {
-                    return getInfo(header);
-                } catch (Exception ignored) {
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return getInfo(Util.readFileBytes(file));
+        return getInfo(file.toPath());
     }
 
+    /**
+     * Retrieves the dimensions of a WebP file, reading only its first bytes when possible.
+     */
     public static int[] getInfo(Path path) throws IOException {
         if (path == null) {
             throw new IllegalArgumentException("Path cannot be null");
         }
-        try (InputStream in = Files.newInputStream(path)) {
-            byte[] header = new byte[64];
-            int read = in.read(header);
-            if (read >= 30) {
-                try {
-                    return getInfo(header);
-                } catch (Exception ignored) {
-                }
+        byte[] header = readHeader(path);
+        if (header.length >= 12) {
+            try {
+                WebPBitstreamFeatures f = WebPBitstreamFeatures.parse(header);
+                return new int[]{f.getWidth(), f.getHeight()};
+            } catch (IOException | RuntimeException probeFailed) {
+                // fall through to the full parse (non-standard layout)
             }
-        } catch (Exception ignored) {
         }
         return getInfo(Util.readFileBytes(path));
     }
@@ -234,26 +236,43 @@ public final class WebPDecoder {
         }
         try {
             return WebPBitstreamFeatures.parse(webPData);
-        } catch (Exception e) {
-            try {
-                if (NativeWebP.isAvailable()) {
+        } catch (IOException | RuntimeException e) {
+            if (NativeWebP.isAvailable()) {
+                try {
                     WebPBitstreamFeatures features = new WebPBitstreamFeatures();
                     int status = NativeWebP.getFeatures(webPData, webPData.length, features);
                     if (VP8StatusCode.getStatusCode(status) == VP8StatusCode.VP8_STATUS_OK) {
                         return features;
                     }
+                } catch (LinkageError | RuntimeException nativeFailure) {
+                    e.addSuppressed(nativeFailure);
                 }
-            } catch (Throwable ignored) {
             }
             throw new IOException("Failed to retrieve WebP bitstream features: " + e.getMessage(), e);
         }
     }
 
     public static WebPBitstreamFeatures getBitstreamFeatures(File file) throws IOException {
-        return getBitstreamFeatures(Util.readFileBytes(file));
+        return getBitstreamFeatures(file.toPath());
     }
 
+    /**
+     * Retrieves bitstream features of a WebP file, reading only its first bytes when possible.
+     */
     public static WebPBitstreamFeatures getBitstreamFeatures(Path path) throws IOException {
+        byte[] header = readHeader(path);
+        if (header.length >= 12) {
+            try {
+                WebPBitstreamFeatures f = WebPBitstreamFeatures.parse(header);
+                // The probe is conclusive only when the bitstream chunk header was reached (format known)
+                // or the image is an animation (everything needed is in VP8X).
+                if (f.getFormat() != 0 || f.isHasAnimation()) {
+                    return f;
+                }
+            } catch (IOException | RuntimeException probeFailed) {
+                // fall through to the full parse
+            }
+        }
         return getBitstreamFeatures(Util.readFileBytes(path));
     }
 
@@ -294,6 +313,10 @@ public final class WebPDecoder {
     /**
      * Decodes a WebP image directly into a pre-allocated BufferedImage canvas.
      * Dimensions of the destination image must match the WebP image dimensions.
+     * <p>
+     * For {@code TYPE_INT_ARGB} and {@code TYPE_INT_RGB} destinations the pixels are decoded straight
+     * into the image's backing array; every other image type is filled from a scratch buffer, so the
+     * destination always receives the decoded pixels.
      *
      * @param webPData    WebP image data
      * @param destination Pre-allocated BufferedImage
@@ -310,9 +333,18 @@ public final class WebPDecoder {
                     "Destination dimensions (%dx%d) do not match WebP dimensions (%dx%d)",
                     destination.getWidth(), destination.getHeight(), dims[0], dims[1]));
         }
-        int[] pixels = PixelConverter.toArgbPixels(destination, destination.getColorModel().hasAlpha());
-        if (!decodeInto(webPData, pixels, dims[0] * 4)) {
+        WebPLimits.checkImage(dims[0], dims[1]);
+
+        int width = dims[0];
+        int height = dims[1];
+        int[] live = PixelConverter.liveBackingOrNull(destination);
+        int[] pixels = live != null ? live : new int[width * height];
+        if (!decodeInto(webPData, pixels, width * 4)) {
             throw new IOException("Failed to decode WebP data into destination image.");
+        }
+        if (live == null) {
+            // The destination has a layout we cannot decode into directly: copy through the raster API.
+            destination.setRGB(0, 0, width, height, pixels, 0, width);
         }
     }
 
@@ -346,51 +378,32 @@ public final class WebPDecoder {
      * @return true if the image contains animation chunks or flags
      */
     public static boolean isAnimated(byte[] webPData) {
-        if (webPData == null || webPData.length < 16) {
+        if (webPData == null || webPData.length < 21) {
             return false;
         }
         if (webPData[0] != 'R' || webPData[1] != 'I' || webPData[2] != 'F' || webPData[3] != 'F'
                 || webPData[8] != 'W' || webPData[9] != 'E' || webPData[10] != 'B' || webPData[11] != 'P') {
             return false;
         }
-        if (webPData[12] == 'V' && webPData[13] == 'P' && webPData[14] == '8') {
-            if (webPData[15] == 'X' && webPData.length >= 24) {
-                int flags = Util.toInt32(webPData, 20);
-                return WebPContainerFlag.ANIMATION.isSet(flags);
-            }
-            return false;
+        if (webPData[12] == 'V' && webPData[13] == 'P' && webPData[14] == '8' && webPData[15] == 'X') {
+            return WebPContainerFlag.ANIMATION.isSet(webPData[20] & 0xFF);
         }
         return false;
     }
 
     public static boolean isAnimated(File file) {
-        if (file == null || !file.exists() || file.length() < 16) {
-            return false;
-        }
-        try (InputStream in = new FileInputStream(file)) {
-            byte[] header = new byte[30];
-            int read = in.read(header);
-            if (read >= 16) {
-                return isAnimated(header);
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
+        return file != null && isAnimated(file.toPath());
     }
 
     public static boolean isAnimated(Path path) {
-        if (path == null || !Files.exists(path)) {
+        if (path == null) {
             return false;
         }
-        try (InputStream in = Files.newInputStream(path)) {
-            byte[] header = new byte[30];
-            int read = in.read(header);
-            if (read >= 16) {
-                return isAnimated(header);
-            }
-        } catch (Exception ignored) {
+        try {
+            return isAnimated(readHeader(path));
+        } catch (IOException e) {
+            return false;
         }
-        return false;
     }
 
     public static boolean isAnimated(InputStream in) {
@@ -427,16 +440,23 @@ public final class WebPDecoder {
     }
 
     public static boolean hasAlpha(File file) {
-        try {
-            return hasAlpha(Util.readFileBytes(file));
-        } catch (Exception e) {
-            return false;
-        }
+        return file != null && hasAlpha(file.toPath());
     }
 
     public static boolean hasAlpha(Path path) {
         try {
-            return hasAlpha(Util.readFileBytes(path));
+            byte[] header = readHeader(path);
+            if (header.length >= 12) {
+                try {
+                    // The VP8X flag / VP8L alpha bit live in the first bytes; a positive answer needs no more.
+                    if (WebPBitstreamFeatures.parse(header).isHasAlpha()) {
+                        return true;
+                    }
+                } catch (IOException | RuntimeException probeFailed) {
+                    // fall through to the full check
+                }
+            }
+            return getBitstreamFeatures(path).isHasAlpha();
         } catch (Exception e) {
             return false;
         }
@@ -465,23 +485,11 @@ public final class WebPDecoder {
      * @return Raw EXIF payload, or null if not present
      */
     public static byte[] getExifMetadata(byte[] webPData) {
-        try {
-            for (Chunk c : getChunks(webPData)) {
-                if (c instanceof EXIFChunk) {
-                    return ((EXIFChunk) c).getRawData();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return findChunkPayload(webPData, RiffScanner.EXIF);
     }
 
     public static byte[] getExifMetadata(File file) {
-        try {
-            return getExifMetadata(Util.readFileBytes(file));
-        } catch (Exception e) {
-            return null;
-        }
+        return file == null ? null : findChunkPayload(file.toPath(), RiffScanner.EXIF);
     }
 
     /**
@@ -491,23 +499,11 @@ public final class WebPDecoder {
      * @return Raw ICC profile payload, or null if not present
      */
     public static byte[] getIccProfile(byte[] webPData) {
-        try {
-            for (Chunk c : getChunks(webPData)) {
-                if (c instanceof ICCPChunk) {
-                    return ((ICCPChunk) c).getRawData();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return findChunkPayload(webPData, RiffScanner.ICCP);
     }
 
     public static byte[] getIccProfile(File file) {
-        try {
-            return getIccProfile(Util.readFileBytes(file));
-        } catch (Exception e) {
-            return null;
-        }
+        return file == null ? null : findChunkPayload(file.toPath(), RiffScanner.ICCP);
     }
 
     /**
@@ -517,23 +513,102 @@ public final class WebPDecoder {
      * @return XMP XML string, or null if not present
      */
     public static String getXmpMetadata(byte[] webPData) {
+        byte[] data = findChunkPayload(webPData, RiffScanner.XMP);
+        return data == null ? null : new String(data, StandardCharsets.UTF_8);
+    }
+
+    public static String getXmpMetadata(File file) {
+        byte[] data = file == null ? null : findChunkPayload(file.toPath(), RiffScanner.XMP);
+        return data == null ? null : new String(data, StandardCharsets.UTF_8);
+    }
+
+    // ------------------------------------------------------------------
+    // Internal helpers
+    // ------------------------------------------------------------------
+
+    /** Scans the container and copies only the payload of the first chunk with the given FourCC. */
+    private static byte[] findChunkPayload(byte[] webPData, int fourCC) {
+        if (webPData == null) {
+            return null;
+        }
         try {
-            for (Chunk c : getChunks(webPData)) {
-                if (c instanceof XMPChunk) {
-                    byte[] data = ((XMPChunk) c).getRawData();
-                    return new String(data, StandardCharsets.UTF_8);
+            RiffScanner scanner = RiffScanner.open(webPData);
+            while (scanner.next()) {
+                if (scanner.fourCC() == fourCC) {
+                    return Arrays.copyOfRange(webPData, scanner.payloadOffset(), scanner.payloadEnd());
                 }
             }
-        } catch (Exception ignored) {
+        } catch (IOException | RuntimeException ignored) {
+            // not a readable WebP container: treated as "metadata absent"
         }
         return null;
     }
 
-    public static String getXmpMetadata(File file) {
-        try {
-            return getXmpMetadata(Util.readFileBytes(file));
-        } catch (Exception e) {
-            return null;
+    /**
+     * Streams through the container of a file and reads only the payload of the requested chunk,
+     * skipping image data instead of loading the whole file.
+     */
+    private static byte[] findChunkPayload(Path path, int fourCC) {
+        try (FileChannel ch = FileChannel.open(path, StandardOpenOption.READ)) {
+            long size = ch.size();
+            ByteBuffer head = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN);
+            if (!readFully(ch, head, 0)) {
+                return null;
+            }
+            if (head.get(0) != 'R' || head.get(1) != 'I' || head.get(2) != 'F' || head.get(3) != 'F'
+                    || head.get(8) != 'W' || head.get(9) != 'E' || head.get(10) != 'B' || head.get(11) != 'P') {
+                return null;
+            }
+            long end = Math.min(size, 8L + (head.getInt(4) & 0xFFFFFFFFL));
+            long pos = 12;
+            ByteBuffer hdr = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
+            while (pos + 8 <= end) {
+                hdr.clear();
+                if (!readFully(ch, hdr, pos)) {
+                    return null;
+                }
+                int id = hdr.getInt(0);
+                long declared = hdr.getInt(4) & 0xFFFFFFFFL;
+                long payload = pos + 8;
+                if (id == fourCC) {
+                    long len = Math.min(declared, end - payload);
+                    WebPLimits.checkInputSize(len);
+                    ByteBuffer data = ByteBuffer.allocate((int) len);
+                    return readFully(ch, data, payload) ? data.array() : null;
+                }
+                pos = payload + declared + (declared & 1L);
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // unreadable file or limit exceeded: treated as "metadata absent"
+        }
+        return null;
+    }
+
+    private static boolean readFully(FileChannel ch, ByteBuffer buf, long position) throws IOException {
+        long pos = position;
+        while (buf.hasRemaining()) {
+            int n = ch.read(buf, pos);
+            if (n < 0) {
+                return false;
+            }
+            pos += n;
+        }
+        return true;
+    }
+
+    /** Reads up to {@link #HEADER_PROBE_BYTES} bytes from the start of a file. */
+    private static byte[] readHeader(Path path) throws IOException {
+        try (FileChannel ch = FileChannel.open(path, StandardOpenOption.READ)) {
+            ByteBuffer buf = ByteBuffer.allocate(HEADER_PROBE_BYTES);
+            long pos = 0;
+            while (buf.hasRemaining()) {
+                int n = ch.read(buf, pos);
+                if (n < 0) {
+                    break;
+                }
+                pos += n;
+            }
+            return Arrays.copyOf(buf.array(), buf.position());
         }
     }
 }

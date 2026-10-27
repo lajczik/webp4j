@@ -24,6 +24,9 @@ public final class ImageHelper {
      * Creates a BufferedImage backed by a byte array of RGBA interleaved pixels.
      */
     public static BufferedImage createImageRGBA(int width, int height, byte[] rgbaData) {
+        if (width <= 0 || height <= 0 || rgbaData == null || rgbaData.length != (long) width * height * 4) {
+            throw new IllegalArgumentException("rgbaData must contain exactly width * height * 4 bytes");
+        }
         DataBufferByte buffer = new DataBufferByte(rgbaData, rgbaData.length);
         int[] bandOffsets = {0, 1, 2, 3};
         PixelInterleavedSampleModel sampleModel = new PixelInterleavedSampleModel(
@@ -65,11 +68,42 @@ public final class ImageHelper {
             if (hasAlpha) {
                 g.setComposite(AlphaComposite.Src);
             }
-            g.drawImage(src, 0, 0, targetWidth, targetHeight, null);
+            g.drawImage(halveTowards(src, targetWidth, targetHeight, hasAlpha), 0, 0, targetWidth, targetHeight, null);
         } finally {
             g.dispose();
         }
         return result;
+    }
+
+    /**
+     * A single bicubic pass that shrinks by more than 2x skips source pixels and aliases. Large reductions
+     * are therefore done in successive halvings (bilinear, which averages 2x2 blocks) until the image is
+     * within 2x of the target; the caller finishes with one high-quality pass.
+     */
+    private static BufferedImage halveTowards(BufferedImage src, int targetWidth, int targetHeight, boolean hasAlpha) {
+        BufferedImage current = src;
+        int w = src.getWidth();
+        int h = src.getHeight();
+        while (w >= targetWidth * 2 || h >= targetHeight * 2) {
+            int nw = w >= targetWidth * 2 ? Math.max(targetWidth, w / 2) : w;
+            int nh = h >= targetHeight * 2 ? Math.max(targetHeight, h / 2) : h;
+            BufferedImage next = new BufferedImage(nw, nh,
+                    hasAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = next.createGraphics();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                if (hasAlpha) {
+                    g.setComposite(AlphaComposite.Src);
+                }
+                g.drawImage(current, 0, 0, nw, nh, null);
+            } finally {
+                g.dispose();
+            }
+            current = next;
+            w = nw;
+            h = nh;
+        }
+        return current;
     }
 
     /**
@@ -165,7 +199,8 @@ public final class ImageHelper {
             }
         }
         BufferedImage result = new BufferedImage(cm, raster, isAlphaPremultiplied, properties);
-        img.copyData(raster);
+        // A RenderedImage may start at a non-zero origin; copy into a raster translated to those bounds.
+        img.copyData(raster.createWritableTranslatedChild(img.getMinX(), img.getMinY()));
         return result;
     }
 

@@ -195,6 +195,13 @@ public final class WebPCodec {
         return WebPEncoder.encode(bufferedImage, quality, lossless);
     }
 
+    /**
+     * Encodes an image with fine-grained libwebp options, see {@link xyz.lychee.webp4j.model.WebPEncoderOptions}.
+     */
+    public static byte[] encodeImage(BufferedImage bufferedImage, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        return WebPEncoder.encode(bufferedImage, options);
+    }
+
     public static byte[] encodeImage(BufferedImage bufferedImage, float quality, boolean lossless,
                                      boolean multiThreaded) throws IOException {
         return WebPEncoder.encode(bufferedImage, quality, lossless, multiThreaded);

@@ -65,6 +65,24 @@ public final class PixelConverter {
     }
 
     /**
+     * Returns the live backing array of a {@code TYPE_INT_ARGB} or {@code TYPE_INT_RGB} image whose
+     * raster is a plain, contiguous, untranslated view; otherwise {@code null}.
+     * <p>
+     * Unlike {@link #toArgbPixels} this never copies, so a {@code null} result tells the caller
+     * that writes to a scratch array would not reach the image.
+     *
+     * @param image the image to inspect
+     * @return the image's backing pixel array or {@code null}
+     */
+    public static int[] liveBackingOrNull(BufferedImage image) {
+        int type = image.getType();
+        if (type != BufferedImage.TYPE_INT_ARGB && type != BufferedImage.TYPE_INT_RGB) {
+            return null;
+        }
+        return backingArrayOrNull(image);
+    }
+
+    /**
      * Wraps a packed ARGB int[] as a BufferedImage without copying.
      * <p>
      * The returned image shares {@code pixels} as its live backing store and
@@ -77,7 +95,7 @@ public final class PixelConverter {
      * @return A BufferedImage backed directly by {@code pixels}.
      */
     public static BufferedImage wrapPixels(int[] pixels, int width, int height, boolean hasAlpha) {
-        if (pixels.length != width * height) {
+        if (pixels.length != (long) width * height) {
             throw new IllegalArgumentException(
                     "Pixel array length " + pixels.length + " does not match " + width + "x" + height);
         }

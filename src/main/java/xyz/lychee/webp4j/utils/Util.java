@@ -1,6 +1,5 @@
 package xyz.lychee.webp4j.utils;
 
-import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
@@ -293,14 +292,28 @@ public final class Util {
      */
     public static byte[] readAllBytes(InputStream in) throws IOException {
         Objects.requireNonNull(in, "InputStream cannot be null");
-        int initialSize = Math.max(16384, in.available());
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(initialSize);
-        byte[] chunk = new byte[16384];
-        int bytesRead;
-        while ((bytesRead = in.read(chunk, 0, chunk.length)) != -1) {
-            buffer.write(chunk, 0, bytesRead);
+        final long max = Math.min(WebPLimits.getMaxInputBytes(), Integer.MAX_VALUE - 8L);
+        byte[] buf = new byte[(int) Math.min(max, Math.max(16384, in.available()))];
+        int len = 0;
+        while (true) {
+            if (len == buf.length) {
+                // Buffer full: grow geometrically, or detect that the input exceeds the limit.
+                if (len >= max) {
+                    if (in.read() != -1) {
+                        throw new IOException("Input exceeds the limit of " + max
+                                + " bytes (see WebPLimits.setMaxInputBytes)");
+                    }
+                    break;
+                }
+                buf = Arrays.copyOf(buf, (int) Math.min(max, (long) len * 2));
+            }
+            int n = in.read(buf, len, buf.length - len);
+            if (n < 0) {
+                break;
+            }
+            len += n;
         }
-        return buffer.toByteArray();
+        return len == buf.length ? buf : Arrays.copyOf(buf, len);
     }
 
     /**
@@ -324,6 +337,7 @@ public final class Util {
      */
     public static byte[] readFileBytes(Path path) throws IOException {
         Objects.requireNonNull(path, "Path cannot be null");
+        WebPLimits.checkInputSize(Files.size(path));
         return Files.readAllBytes(path);
     }
 
