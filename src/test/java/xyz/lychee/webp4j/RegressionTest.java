@@ -18,7 +18,6 @@ import xyz.lychee.webp4j.model.AnimatedWebPFrame;
 import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.model.WebPBitstreamFeatures;
 import xyz.lychee.webp4j.model.WebPEncoderOptions;
-import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.natives.NativeLibraryLoader;
 import xyz.lychee.webp4j.utils.RiffScanner;
 import xyz.lychee.webp4j.utils.Util;
@@ -199,19 +198,6 @@ class RegressionTest {
         }
         assertSingleRiff(out.toByteArray());
         assertEquals(2, AnimatedWebPDecoder.decode(out.toByteArray()).getFrames().size());
-    }
-
-    @Test
-    @SuppressWarnings("deprecation")
-    void legacyConstructorAndFlushStillWorkAndStayIdempotent() throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(out, true, 2, 16, 16, 0, 0)) {
-            encoder.setFrame(0, image(16, 16, BufferedImage.TYPE_INT_ARGB, 1), 100, 80f);
-            encoder.setFrame(1, image(16, 16, BufferedImage.TYPE_INT_ARGB, 2), 100, 80f);
-            encoder.flush();
-            encoder.flush();
-        }
-        assertSingleRiff(out.toByteArray());
     }
 
     @Test

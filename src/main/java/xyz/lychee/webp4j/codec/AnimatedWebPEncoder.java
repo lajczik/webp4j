@@ -11,7 +11,6 @@ import xyz.lychee.webp4j.utils.Util;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.Flushable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
@@ -35,8 +34,7 @@ import java.util.logging.Logger;
  * @author MrNanko
  * @author lajczik
  */
-public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
-
+public class AnimatedWebPEncoder implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(AnimatedWebPEncoder.class.getName());
 
     private final OutputStream out;
@@ -59,24 +57,6 @@ public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
         int vp8xFlags = WebPContainerFlag.ANIMATION.getMask() | (alpha ? WebPContainerFlag.ALPHA.getMask() : 0);
         this.vp8XChunk = new VP8XChunk(vp8xFlags, width, height);
         this.animChunk = new ANIMChunk(backgroundColor, loopCount);
-    }
-
-    /**
-     * @deprecated the frame count is no longer needed, frames are collected dynamically.
-     * Use {@link #AnimatedWebPEncoder(OutputStream, boolean, int, int)}.
-     */
-    @Deprecated
-    public AnimatedWebPEncoder(OutputStream out, boolean alpha, int frames, int width, int height) {
-        this(out, alpha, width, height);
-    }
-
-    /**
-     * @deprecated the frame count is no longer needed, frames are collected dynamically.
-     * Use {@link #AnimatedWebPEncoder(OutputStream, boolean, int, int, int, int)}.
-     */
-    @Deprecated
-    public AnimatedWebPEncoder(OutputStream out, boolean alpha, int frames, int width, int height, int loopCount, int backgroundColor) {
-        this(out, alpha, width, height, loopCount, backgroundColor);
     }
 
     public boolean isAlpha() {
@@ -241,18 +221,6 @@ public class AnimatedWebPEncoder implements AutoCloseable, Flushable {
         finished = true;
         new WebPChunk(chunks.toArray(new Chunk[0])).write(out);
         out.flush();
-    }
-
-    /**
-     * Writes the animation like {@link #finish()}.
-     *
-     * @deprecated the container is written once on {@link #close()}; calling this is no longer
-     * necessary but remains harmless (it is idempotent).
-     */
-    @Deprecated
-    @Override
-    public void flush() throws IOException {
-        finish();
     }
 
     /**
