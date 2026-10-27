@@ -66,14 +66,14 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
 <dependency>
     <groupId>io.github.lajczik</groupId>
     <artifactId>webp4j</artifactId>
-    <version>2.7.0</version>
+    <version>2.7.1</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'io.github.lajczik:webp4j:2.7.0'
+implementation 'io.github.lajczik:webp4j:2.7.1'
 ```
 
 ### Supported Environments
