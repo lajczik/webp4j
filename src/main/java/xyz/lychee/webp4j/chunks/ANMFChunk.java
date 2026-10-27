@@ -21,31 +21,23 @@ public class ANMFChunk extends LISTChunk {
     /**
      * Creates an animation frame chunk.
      *
-     * @param x        Horizontal frame offset in pixels; must be even (the container stores {@code x / 2})
-     * @param y        Vertical frame offset in pixels; must be even (the container stores {@code y / 2})
+     * @param x        Horizontal frame offset in pixels
+     * @param y        Vertical frame offset in pixels
      * @param width    Frame width in pixels (1 .. 2^24)
      * @param height   Frame height in pixels (1 .. 2^24)
      * @param duration Display time in milliseconds (0 .. 2^24-1)
      * @param flags    Frame flag mask, see {@link WebPFrameFlag}
      * @param subchunks Bitstream chunks of the frame
-     * @throws IllegalArgumentException if a value is out of range or an offset is odd
+     * @throws IllegalArgumentException if a value is out of range
      */
     public ANMFChunk(int x, int y, int width, int height, int duration, int flags, Chunk... subchunks) {
         super(ANMF, 3 + 3 + 3 + 3 + 3 + 1, subchunks);
-        this.x = checkOffset(x, "x");
-        this.y = checkOffset(y, "y");
+        this.x = checkUInt24(x);
+        this.y = checkUInt24(y);
         this.width = checkDimension(width, "width");
         this.height = checkDimension(height, "height");
         this.duration = checkUInt24(duration);
         this.reservedBD = flags;
-    }
-
-    private static int checkOffset(int value, String name) {
-        if (value < 0 || (value & 1) != 0) {
-            throw new IllegalArgumentException("Frame " + name + " offset must be a non-negative even number, but was " + value);
-        }
-        checkUInt24(value >>> 1);
-        return value;
     }
 
     private static int checkDimension(int value, String name) {

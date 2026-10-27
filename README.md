@@ -66,14 +66,14 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
 <dependency>
     <groupId>io.github.lajczik</groupId>
     <artifactId>webp4j</artifactId>
-    <version>2.7.1</version>
+    <version>2.7.2</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'io.github.lajczik:webp4j:2.7.1'
+implementation 'io.github.lajczik:webp4j:2.7.2'
 ```
 
 ### Supported Environments
@@ -472,7 +472,7 @@ The bundled binary is extracted once into `<java.io.tmpdir>/webp4j-<sha256>/` (o
 | `AnimatedWebPEncoder` writes the container once on `close()`; `flush()` is deprecated (it now equals `finish()` and is idempotent) | Remove explicit `flush()` calls |
 | Constructors lost the `frames` parameter (the old ones remain, deprecated) | Drop the frame count argument |
 | `setChunkAt` was removed; `getChunks()` returns the chunks that would be written | Use `setFrame(index, ANMFChunk)` / `addFrame(ANMFChunk)` |
-| ANMF frame offsets must be even and are stored as `x/2`, `y/2` as the container specification requires | Round offsets down to even values |
+| ANMF frame offsets are stored as `x/2`, `y/2` as the container specification requires | Odd offsets are automatically rounded to the container resolution |
 | `WebPEncoder.encode(image, quality, out)` no longer switches to lossless at quality ≥ 100 | Call `encodeLossless` for lossless output |
 | Maven coordinates are `io.github.lajczik:webp4j` | Update the dependency |
 
