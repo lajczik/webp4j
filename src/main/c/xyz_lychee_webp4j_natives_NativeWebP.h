@@ -20,6 +20,14 @@ JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getFeatures
 JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encode
   (JNIEnv *, jclass, jintArray, jint, jint, jfloat, jboolean, jboolean, jboolean);
 
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAdvanced
+  (JNIEnv *, jclass, jintArray, jint, jint, jboolean, jfloat, jboolean, jint, jint, jboolean, jint, jboolean, jint, jboolean);
+
+/*
+ * Class:     xyz_lychee_webp4j_natives_NativeWebP
+ * Method:    encodeBgr
+ * Signature: ([BIIFZZ)[B
+ */
 JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr
   (JNIEnv *, jclass, jbyteArray, jint, jint, jfloat, jboolean, jboolean);
 

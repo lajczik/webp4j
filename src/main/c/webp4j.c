@@ -1,4 +1,6 @@
 #include <jni.h>
+#include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <webp/encode.h>
@@ -6,7 +8,6 @@
 #include <webp/mux.h>
 #include <webp/demux.h>
 #include "xyz_lychee_webp4j_natives_NativeWebP.h"
-#include "xyz_lychee_webp4j_jni_NativeWebP.h"
 
 #ifdef HAVE_GIFLIB
 #include "gif_decoder.h"
@@ -32,6 +33,13 @@
  * decodeInto, where decoding directly into the pinned Java array IS the
  * zero-copy.
  */
+
+/*
+ * Sanity cap for the total number of pixels the native animated decoders will materialize.
+ * The Java layer applies the (configurable) WebPLimits first; this is the last line of defence
+ * for callers that reach the native entry points directly.
+ */
+#define WEBP4J_MAX_TOTAL_PIXELS (1ULL << 30)
 
 /* ---------------------------------------------------------------------------
  * Cached classes and field IDs (initialized once in JNI_OnLoad).
@@ -74,6 +82,7 @@ static jclass CacheClass(JNIEnv* env, const char* name) {
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    (void)reserved;
     JNIEnv* env;
     if ((*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_8) != JNI_OK) {
         return JNI_ERR;
@@ -118,6 +127,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         g_anim_data_loop_count == NULL || g_anim_data_bgcolor == NULL ||
         g_anim_data_frame_count == NULL || g_anim_data_frame_pixels == NULL ||
         g_anim_data_timestamps == NULL) {
+        (*env)->ExceptionClear(env);
         return JNI_ERR;
     }
 
@@ -125,6 +135,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 }
 
 JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved) {
+    (void)reserved;
     JNIEnv* env;
     if ((*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_8) != JNI_OK) {
         return;
@@ -134,6 +145,339 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved) {
     if (g_anim_data_class != NULL) (*env)->DeleteGlobalRef(env, g_anim_data_class);
     if (g_int_array_class != NULL) (*env)->DeleteGlobalRef(env, g_int_array_class);
 }
+
+/* ===========================================================================
+ * Backend-independent core (shared by the JNI and the FFM entry points)
+ * =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * Static encoding
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+    float quality;        /* lossy quality, or lossless effort */
+    int lossless;
+    int method;           /* 0..6 */
+    int near_lossless;    /* 0..100, 100 = off */
+    int exact;
+    int alpha_quality;    /* 0..100 */
+    int sharp_yuv;
+    int target_size;      /* bytes, 0 = off */
+    int multi_threaded;
+} EncodeOptions;
+
+/*
+ * Options of libwebp's simple-API Encode() (picture_enc.c): preset DEFAULT, lossless preset
+ * quality 70, pic.use_argb = lossless. Output is identical to WebPEncode(Lossless)BGRA/BGR.
+ */
+static void SimpleEncodeOptions(EncodeOptions* o, float quality, int lossless, int multi_threaded) {
+    o->quality = lossless ? 70.f : quality;
+    o->lossless = lossless ? 1 : 0;
+    o->method = 4;
+    o->near_lossless = 100;
+    o->exact = 0;
+    o->alpha_quality = 100;
+    o->sharp_yuv = 0;
+    o->target_size = 0;
+    o->multi_threaded = multi_threaded ? 1 : 0;
+}
+
+static int SetupEncode(WebPConfig* config, WebPPicture* pic, WebPMemoryWriter* wrt,
+                       int width, int height, const EncodeOptions* o) {
+    if (!WebPConfigPreset(config, WEBP_PRESET_DEFAULT, o->quality)) {
+        return 0;
+    }
+    config->lossless = o->lossless;
+    config->method = o->method;
+    config->near_lossless = o->near_lossless;
+    config->exact = o->exact;
+    config->alpha_quality = o->alpha_quality;
+    config->use_sharp_yuv = o->sharp_yuv;
+    config->target_size = o->target_size;
+    /* thread_level is a pure speed knob: the output is bit-identical to single-threaded. */
+    config->thread_level = o->multi_threaded;
+    if (!WebPValidateConfig(config)) {
+        return 0;
+    }
+
+    if (!WebPPictureInit(pic)) {
+        return 0;
+    }
+    /* Sharp YUV is applied during ARGB -> YUV conversion, which only happens for ARGB pictures. */
+    pic->use_argb = (o->lossless || o->sharp_yuv) ? 1 : 0;
+    pic->width = width;
+    pic->height = height;
+
+    WebPMemoryWriterInit(wrt);
+    pic->writer = WebPMemoryWrite;
+    pic->custom_ptr = wrt;
+    return 1;
+}
+
+static int DimensionsOk(int64_t width, int64_t height) {
+    return width > 0 && height > 0 && width <= WEBP_MAX_DIMENSION && height <= WEBP_MAX_DIMENSION;
+}
+
+/* ---------------------------------------------------------------------------
+ * Animated encoding (WebPAnimEncoder) - shared by encodeAnimated and GIF conversion
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+    float quality;
+    int lossless;
+    int method;
+    int loop_count;
+    int kmin;
+    int kmax;
+    int minimize_size;
+    int allow_mixed;
+    int multi_threaded;
+    uint32_t bgcolor;
+} AnimParams;
+
+typedef struct {
+    WebPAnimEncoder* enc;
+    WebPConfig config;
+    int64_t timestamp_ms;
+} AnimCtx;
+
+static int AnimBegin(AnimCtx* ctx, int width, int height, const AnimParams* p) {
+    memset(ctx, 0, sizeof(*ctx));
+
+    WebPAnimEncoderOptions options;
+    if (!WebPAnimEncoderOptionsInit(&options)) {
+        return 0;
+    }
+    options.anim_params.loop_count = p->loop_count;
+    options.anim_params.bgcolor = p->bgcolor;
+    options.kmin = p->kmin;
+    options.kmax = p->kmax;
+    options.minimize_size = p->minimize_size ? 1 : 0;
+    options.allow_mixed = p->allow_mixed ? 1 : 0;
+
+    if (!WebPConfigInit(&ctx->config)) {
+        return 0;
+    }
+    ctx->config.lossless = p->lossless ? 1 : 0;
+    ctx->config.quality = p->quality;
+    ctx->config.method = p->method;
+    ctx->config.thread_level = p->multi_threaded ? 1 : 0;
+    if (!WebPValidateConfig(&ctx->config)) {
+        return 0;
+    }
+
+    ctx->enc = WebPAnimEncoderNew(width, height, &options);
+    return ctx->enc != NULL;
+}
+
+static void AnimFree(AnimCtx* ctx) {
+    if (ctx->enc != NULL) {
+        WebPAnimEncoderDelete(ctx->enc);
+        ctx->enc = NULL;
+    }
+}
+
+/* Adds an imported picture, then advances the timeline by its display duration. */
+static int AnimAdd(AnimCtx* ctx, WebPPicture* pic, int duration_ms) {
+    if (duration_ms < 0 || ctx->timestamp_ms + duration_ms > INT_MAX) {
+        return 0;
+    }
+    if (!WebPAnimEncoderAdd(ctx->enc, pic, (int)ctx->timestamp_ms, &ctx->config)) {
+        return 0;
+    }
+    ctx->timestamp_ms += duration_ms;
+    return 1;
+}
+
+/* Flushes the last frame and assembles the file. On success the caller owns out->bytes. */
+static int AnimFinish(AnimCtx* ctx, WebPData* out) {
+    WebPDataInit(out);
+    return WebPAnimEncoderAdd(ctx->enc, NULL, (int)ctx->timestamp_ms, NULL) &&
+           WebPAnimEncoderAssemble(ctx->enc, out);
+}
+
+/* ---------------------------------------------------------------------------
+ * GIF -> WebP conversion
+ * ------------------------------------------------------------------------- */
+
+#ifdef HAVE_GIFLIB
+
+typedef struct {
+    float quality;
+    int lossless;
+    int method;
+    int extract_first;
+    int loop_count;       /* -1 = use the GIF's own loop count */
+    int kmin;
+    int kmax;
+    int minimize_size;
+    int allow_mixed;
+    int multi_threaded;
+} GifConvertParams;
+
+/* gif2webp uses a transparent white background hint. */
+#define GIF_BGCOLOR_HINT 0x00FFFFFFu
+
+/* Encodes one canvas-sized RGBA frame as a still WebP. On success the caller owns out->bytes. */
+static int EncodeStaticRGBA(const uint8_t* rgba, int width, int height,
+                            const GifConvertParams* p, WebPData* out) {
+    WebPConfig config;
+    WebPPicture pic;
+    WebPMemoryWriter wrt;
+    int ok = 0;
+
+    WebPDataInit(out);
+    if (!WebPConfigInit(&config)) {
+        return 0;
+    }
+    config.lossless = p->lossless ? 1 : 0;
+    config.quality = p->quality;
+    config.method = p->method;
+    config.thread_level = p->multi_threaded ? 1 : 0;
+    if (!WebPValidateConfig(&config) || !WebPPictureInit(&pic)) {
+        return 0;
+    }
+    pic.use_argb = 1;
+    pic.width = width;
+    pic.height = height;
+    WebPMemoryWriterInit(&wrt);
+    pic.writer = WebPMemoryWrite;
+    pic.custom_ptr = &wrt;
+
+    if (WebPPictureImportRGBA(&pic, rgba, width * 4) && WebPEncode(&config, &pic) && wrt.size > 0) {
+        out->bytes = wrt.mem;
+        out->size = wrt.size;
+        ok = 1;
+    } else {
+        WebPMemoryWriterClear(&wrt);
+    }
+    WebPPictureFree(&pic);
+    return ok;
+}
+
+typedef struct {
+    const GifConvertParams* params;
+    uint8_t* first;       /* first frame, held until we know whether the GIF is animated */
+    int first_duration;
+    int frames;
+    int failed;
+    int have_encoder;
+    AnimCtx anim;
+    WebPData still;       /* result when only the first frame is wanted */
+    int have_still;
+} GifConvertState;
+
+static int AnimAddRGBA(AnimCtx* anim, const uint8_t* rgba, int width, int height, int duration_ms) {
+    WebPPicture pic;
+    if (!WebPPictureInit(&pic)) {
+        return 0;
+    }
+    pic.use_argb = 1;
+    pic.width = width;
+    pic.height = height;
+    int ok = WebPPictureImportRGBA(&pic, rgba, width * 4) && AnimAdd(anim, &pic, duration_ms);
+    WebPPictureFree(&pic);
+    return ok;
+}
+
+static int GifConvertCallback(void* user, const GifStreamInfo* info, const uint8_t* rgba, int duration_ms) {
+    GifConvertState* s = (GifConvertState*)user;
+    const GifConvertParams* p = s->params;
+    int w = info->canvas_width, h = info->canvas_height;
+
+    if (s->frames == 0) {
+        if (p->extract_first) {
+            s->have_still = EncodeStaticRGBA(rgba, w, h, p, &s->still);
+            s->failed = !s->have_still;
+            s->frames = 1;
+            return 0;  /* the rest of the file is never parsed */
+        }
+        s->first = (uint8_t*)malloc((size_t)w * h * 4);
+        if (s->first == NULL) {
+            s->failed = 1;
+            return 0;
+        }
+        memcpy(s->first, rgba, (size_t)w * h * 4);
+        s->first_duration = duration_ms;
+        s->frames = 1;
+        return 1;
+    }
+
+    if (!s->have_encoder) {
+        /* Second frame: the GIF is animated. The loop count is known by now. */
+        AnimParams ap;
+        ap.quality = p->quality;
+        ap.lossless = p->lossless;
+        ap.method = p->method;
+        ap.loop_count = p->loop_count == -1 ? info->loop_count : p->loop_count;
+        ap.kmin = p->kmin;
+        ap.kmax = p->kmax;
+        ap.minimize_size = p->minimize_size;
+        ap.allow_mixed = p->allow_mixed;
+        ap.multi_threaded = p->multi_threaded;
+        ap.bgcolor = GIF_BGCOLOR_HINT;
+        if (!AnimBegin(&s->anim, w, h, &ap)) {
+            s->failed = 1;
+            return 0;
+        }
+        s->have_encoder = 1;
+        if (!AnimAddRGBA(&s->anim, s->first, w, h, s->first_duration)) {
+            s->failed = 1;
+            return 0;
+        }
+        free(s->first);
+        s->first = NULL;
+    }
+
+    if (!AnimAddRGBA(&s->anim, rgba, w, h, duration_ms)) {
+        s->failed = 1;
+        return 0;
+    }
+    s->frames++;
+    return 1;
+}
+
+/*
+ * Converts GIF bytes to a still (one frame, or first-frame-only) or animated WebP in a single
+ * streaming pass: memory use is O(canvas), independent of the frame count.
+ * On success the caller owns out->bytes (release with WebPDataClear / WebPFree).
+ */
+static int ConvertGif(const uint8_t* data, size_t size, const GifConvertParams* p, WebPData* out) {
+    GifConvertState s;
+    GifStreamInfo info;
+    int ok = 0;
+
+    memset(&s, 0, sizeof(s));
+    s.params = p;
+    WebPDataInit(out);
+
+    if (DecodeGifStream(data, size, GifConvertCallback, &s, &info) && !s.failed) {
+        if (s.have_still) {
+            *out = s.still;
+            WebPDataInit(&s.still);
+            ok = 1;
+        } else if (!s.have_encoder && s.first != NULL) {
+            /* Single-frame GIF -> still image */
+            ok = EncodeStaticRGBA(s.first, info.canvas_width, info.canvas_height, p, out);
+        } else if (s.have_encoder) {
+            ok = AnimFinish(&s.anim, out);
+        }
+    }
+
+    AnimFree(&s.anim);
+    free(s.first);
+    WebPDataClear(&s.still);
+    if (!ok) {
+        WebPDataClear(out);
+    }
+    return ok;
+}
+
+#endif /* HAVE_GIFLIB */
+
+/* ===========================================================================
+ * JNI entry points
+ * =========================================================================== */
 
 /* ---------------------------------------------------------------------------
  * Probes
@@ -145,6 +489,7 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved) {
  */
 JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getLibWebPVersion
   (JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     return (jint) WebPGetEncoderVersion();
 }
 
@@ -153,6 +498,7 @@ JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getLibWebPVersi
  */
 JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getInfo
   (JNIEnv *env, jclass clazz, jbyteArray data, jintArray dimensions) {
+    (void)clazz;
     jsize data_size = (*env)->GetArrayLength(env, data);
     if ((*env)->GetArrayLength(env, dimensions) < 2) {
         return JNI_FALSE;
@@ -178,9 +524,15 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getInfo
 /*
  * Extracts WebP bitstream features into a WebPBitstreamFeatures object.
  * Returns the VP8StatusCode from WebPGetFeatures (0 = OK).
+ * dataSize must not exceed the array length (VP8_STATUS_INVALID_PARAM otherwise).
  */
 JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getFeatures
   (JNIEnv *env, jclass clazz, jbyteArray data, jint dataSize, jobject featuresObj) {
+    (void)clazz;
+    if (dataSize < 0 || dataSize > (*env)->GetArrayLength(env, data)) {
+        return VP8_STATUS_INVALID_PARAM;
+    }
+
     WebPBitstreamFeatures features;
     jbyte* webp_data = (*env)->GetPrimitiveArrayCritical(env, data, NULL);
     if (webp_data == NULL) {
@@ -208,38 +560,7 @@ JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getFeatures
  * ------------------------------------------------------------------------- */
 
 /*
- * Shared static-encode setup: mirrors the flow of libwebp's simple-API
- * Encode() (picture_enc.c) so the output is identical to
- * WebPEncode(Lossless)BGRA/BGR: preset DEFAULT, lossless preset quality 70,
- * pic.use_argb = lossless.
- */
-static int SetupEncode(WebPConfig* config, WebPPicture* pic, WebPMemoryWriter* wrt,
-                       jint width, jint height, jfloat quality, jboolean lossless,
-                       jboolean multiThreaded) {
-    if (!WebPConfigPreset(config, WEBP_PRESET_DEFAULT, lossless ? 70.f : quality)) {
-        return 0;
-    }
-    config->lossless = lossless ? 1 : 0;
-    /* thread_level is a pure speed knob: libwebp parallelizes the encode
-     * internally and the output bitstream is bit-identical to single-threaded. */
-    config->thread_level = multiThreaded ? 1 : 0;
-
-    if (!WebPPictureInit(pic)) {
-        return 0;
-    }
-    pic->use_argb = lossless ? 1 : 0;
-    pic->width = width;
-    pic->height = height;
-
-    WebPMemoryWriterInit(wrt);
-    pic->writer = WebPMemoryWrite;
-    pic->custom_ptr = wrt;
-    return 1;
-}
-
-/*
- * Shared static-encode tail: runs WebPEncode on an imported picture and
- * materializes the bitstream as a Java byte array. Frees the picture and the
+ * Materializes the bitstream as a Java byte array. Frees the picture and the
  * writer in all cases.
  */
 static jbyteArray FinishEncode(JNIEnv* env, WebPConfig* config, WebPPicture* pic,
@@ -248,7 +569,7 @@ static jbyteArray FinishEncode(JNIEnv* env, WebPConfig* config, WebPPicture* pic
     WebPPictureFree(pic);
 
     jbyteArray result = NULL;
-    if (ok && wrt->size > 0) {
+    if (ok && wrt->size > 0 && wrt->size <= (size_t)INT_MAX) {
         result = (*env)->NewByteArray(env, (jsize)wrt->size);
         if (result != NULL) {
             (*env)->SetByteArrayRegion(env, result, 0, (jsize)wrt->size, (const jbyte*)wrt->mem);
@@ -259,16 +580,14 @@ static jbyteArray FinishEncode(JNIEnv* env, WebPConfig* config, WebPPicture* pic
 }
 
 /*
- * Encodes packed ARGB pixels (BGRA bytes on LE) to a WebP bitstream.
- *
+ * Shared body of encode / encodeAdvanced: packed ARGB pixels (BGRA bytes on LE).
  * The only work inside the critical section is the single linear import pass;
  * the expensive WebPEncode runs after the array is released, so GC is never
  * blocked during compression.
  */
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encode
-  (JNIEnv *env, jclass clazz, jintArray pixels, jint width, jint height,
-   jfloat quality, jboolean lossless, jboolean hasAlpha, jboolean multiThreaded) {
-    if (width <= 0 || height <= 0 ||
+static jbyteArray EncodeArgb(JNIEnv* env, jintArray pixels, jint width, jint height,
+                             jboolean hasAlpha, const EncodeOptions* options) {
+    if (!DimensionsOk(width, height) ||
         (jlong)(*env)->GetArrayLength(env, pixels) != (jlong)width * height) {
         return NULL;
     }
@@ -276,7 +595,7 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encode
     WebPConfig config;
     WebPPicture pic;
     WebPMemoryWriter wrt;
-    if (!SetupEncode(&config, &pic, &wrt, width, height, quality, lossless, multiThreaded)) {
+    if (!SetupEncode(&config, &pic, &wrt, width, height, options)) {
         return NULL;
     }
 
@@ -293,23 +612,60 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encode
 }
 
 /*
+ * Encodes packed ARGB pixels (BGRA bytes on LE) to a WebP bitstream.
+ */
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encode
+  (JNIEnv *env, jclass clazz, jintArray pixels, jint width, jint height,
+   jfloat quality, jboolean lossless, jboolean hasAlpha, jboolean multiThreaded) {
+    (void)clazz;
+    EncodeOptions options;
+    SimpleEncodeOptions(&options, quality, lossless, multiThreaded);
+    return EncodeArgb(env, pixels, width, height, hasAlpha, &options);
+}
+
+/*
+ * Encodes packed ARGB pixels with the full set of libwebp options.
+ */
+JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAdvanced
+  (JNIEnv *env, jclass clazz, jintArray pixels, jint width, jint height, jboolean hasAlpha,
+   jfloat quality, jboolean lossless, jint method, jint nearLossless, jboolean exact,
+   jint alphaQuality, jboolean sharpYuv, jint targetSize, jboolean multiThreaded) {
+    (void)clazz;
+    EncodeOptions options;
+    options.quality = quality;
+    options.lossless = lossless ? 1 : 0;
+    options.method = method;
+    options.near_lossless = nearLossless;
+    options.exact = exact ? 1 : 0;
+    options.alpha_quality = alphaQuality;
+    options.sharp_yuv = sharpYuv ? 1 : 0;
+    options.target_size = targetSize;
+    options.multi_threaded = multiThreaded ? 1 : 0;
+    return EncodeArgb(env, pixels, width, height, hasAlpha, &options);
+}
+
+/*
  * Encodes interleaved BGR bytes (a TYPE_3BYTE_BGR backing array) to a WebP
- * bitstream. Fast path for ImageIO's most common output format — the byte
+ * bitstream. Fast path for ImageIO's most common output format - the byte
  * order already matches WebPPictureImportBGR, so the image's backing array
  * is imported directly with no Java-side conversion.
  */
 JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr
   (JNIEnv *env, jclass clazz, jbyteArray pixels, jint width, jint height,
    jfloat quality, jboolean lossless, jboolean multiThreaded) {
-    if (width <= 0 || height <= 0 ||
+    (void)clazz;
+    if (!DimensionsOk(width, height) ||
         (jlong)(*env)->GetArrayLength(env, pixels) != (jlong)width * height * 3) {
         return NULL;
     }
 
+    EncodeOptions options;
+    SimpleEncodeOptions(&options, quality, lossless, multiThreaded);
+
     WebPConfig config;
     WebPPicture pic;
     WebPMemoryWriter wrt;
-    if (!SetupEncode(&config, &pic, &wrt, width, height, quality, lossless, multiThreaded)) {
+    if (!SetupEncode(&config, &pic, &wrt, width, height, &options)) {
         return NULL;
     }
 
@@ -328,13 +684,17 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr
  *
  * Zero-copy: libwebp writes BGRA bytes straight into the pinned Java array,
  * which is typically the backing store of the BufferedImage being returned.
- * Both arrays stay pinned across the whole decode — the accepted cost; for
+ * Both arrays stay pinned across the whole decode - the accepted cost; for
  * extreme image sizes this can delay GC for the duration of the decode.
  * Nested criticals are legal here because no other JNI call happens between
  * acquisition and release.
  */
 JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_decodeInto
   (JNIEnv *env, jclass clazz, jbyteArray data, jintArray output, jint outputStride) {
+    (void)clazz;
+    if (outputStride <= 0) {
+        return JNI_FALSE;
+    }
     jsize data_size = (*env)->GetArrayLength(env, data);
     size_t output_size = (size_t)(*env)->GetArrayLength(env, output) * 4;
 
@@ -370,6 +730,7 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_decodeInto
  */
 JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getGifInfo
   (JNIEnv *env, jclass clazz, jbyteArray gifData, jobject info) {
+    (void)clazz;
 #ifdef HAVE_GIFLIB
     jsize data_size = (*env)->GetArrayLength(env, gifData);
     jbyte* gif_bytes = (*env)->GetByteArrayElements(env, gifData, NULL);
@@ -395,32 +756,10 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_getGifInfo
                             has_transparency ? JNI_TRUE : JNI_FALSE);
     return JNI_TRUE;
 #else
+    (void)env; (void)gifData; (void)info;
     return JNI_FALSE;
 #endif
 }
-
-#ifdef HAVE_GIFLIB
-/* Encodes a single canvas-sized RGBA frame as a static WebP byte array. */
-static jbyteArray EncodeStaticRGBA(JNIEnv* env, const uint8_t* rgba,
-                                   int width, int height,
-                                   jfloat quality, jboolean lossless) {
-    uint8_t* output = NULL;
-    size_t output_size = lossless
-        ? WebPEncodeLosslessRGBA(rgba, width, height, width * 4, &output)
-        : WebPEncodeRGBA(rgba, width, height, width * 4, quality, &output);
-
-    if (output_size == 0 || output == NULL) {
-        return NULL;
-    }
-
-    jbyteArray result = (*env)->NewByteArray(env, (jsize)output_size);
-    if (result != NULL) {
-        (*env)->SetByteArrayRegion(env, result, 0, (jsize)output_size, (const jbyte*)output);
-    }
-    WebPFree(output);
-    return result;
-}
-#endif
 
 /*
  * Converts GIF data to WebP using the native giflib decoder (primary path).
@@ -431,6 +770,7 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeGif
    jboolean lossless, jint compressionMethod, jboolean extractFirstFrameOnly,
    jint loopCount, jint kmin, jint kmax, jboolean minimizeSize, jboolean allowMixed,
    jboolean multiThreaded) {
+    (void)clazz;
 #ifdef HAVE_GIFLIB
     jsize data_size = (*env)->GetArrayLength(env, gifData);
     jbyte* gif_bytes = (*env)->GetByteArrayElements(env, gifData, NULL);
@@ -438,117 +778,35 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeGif
         return NULL;
     }
 
-    if (extractFirstFrameOnly) {
-        int canvas_width, canvas_height;
-        GifFrame* frame = DecodeGifFirstFrame((const uint8_t*)gif_bytes, (size_t)data_size,
-                                              &canvas_width, &canvas_height);
-        (*env)->ReleaseByteArrayElements(env, gifData, gif_bytes, JNI_ABORT);
+    GifConvertParams params;
+    params.quality = quality;
+    params.lossless = lossless ? 1 : 0;
+    params.method = compressionMethod;
+    params.extract_first = extractFirstFrameOnly ? 1 : 0;
+    params.loop_count = loopCount;
+    params.kmin = kmin;
+    params.kmax = kmax;
+    params.minimize_size = minimizeSize ? 1 : 0;
+    params.allow_mixed = allowMixed ? 1 : 0;
+    params.multi_threaded = multiThreaded ? 1 : 0;
 
-        if (frame == NULL) {
-            return NULL;
-        }
-        jbyteArray result = EncodeStaticRGBA(env, frame->rgba_data,
-                                             canvas_width, canvas_height, quality, lossless);
-        FreeGifFrame(frame);
-        return result;
-    }
-
-    GifDecodeResult* gif_result = DecodeGifFromMemory((const uint8_t*)gif_bytes, (size_t)data_size);
+    WebPData webp;
+    int ok = ConvertGif((const uint8_t*)gif_bytes, (size_t)data_size, &params, &webp);
     (*env)->ReleaseByteArrayElements(env, gifData, gif_bytes, JNI_ABORT);
 
-    if (gif_result == NULL) {
-        return NULL;
-    }
-
-    if (gif_result->frame_count == 1) {
-        jbyteArray result = EncodeStaticRGBA(env, gif_result->frames[0].rgba_data,
-                                             gif_result->canvas_width, gif_result->canvas_height,
-                                             quality, lossless);
-        FreeGifDecodeResult(gif_result);
-        return result;
-    }
-
-    /* Multi-frame GIF -> animated WebP. Single cleanup tail; enc/webp_data
-     * are tracked so every failure path is provably leak-free. */
     jbyteArray result = NULL;
-    WebPAnimEncoder* enc = NULL;
-    WebPData webp_data;
-    WebPDataInit(&webp_data);
-
-    WebPAnimEncoderOptions enc_options;
-    if (!WebPAnimEncoderOptionsInit(&enc_options)) {
-        goto cleanup;
-    }
-    enc_options.anim_params.loop_count = (loopCount == -1) ? gif_result->loop_count : loopCount;
-    /* Force alpha=0 to preserve transparency in WebP output. */
-    enc_options.anim_params.bgcolor = gif_result->bgcolor & 0x00FFFFFF;
-    enc_options.kmin = kmin;
-    enc_options.kmax = kmax;
-    enc_options.minimize_size = minimizeSize ? 1 : 0;
-    enc_options.allow_mixed = allowMixed ? 1 : 0;
-
-    enc = WebPAnimEncoderNew(gif_result->canvas_width, gif_result->canvas_height, &enc_options);
-    if (enc == NULL) {
-        goto cleanup;
-    }
-
-    WebPConfig config;
-    if (!WebPConfigInit(&config)) {
-        goto cleanup;
-    }
-    config.lossless = lossless ? 1 : 0;
-    config.quality = quality;
-    config.method = compressionMethod;
-    config.thread_level = multiThreaded ? 1 : 0;  /* multi-thread each frame's encode */
-    if (!WebPValidateConfig(&config)) {
-        goto cleanup;
-    }
-
-    int timestamp_ms = 0;
-    for (int i = 0; i < gif_result->frame_count; i++) {
-        GifFrame* frame = &gif_result->frames[i];
-
-        WebPPicture picture;
-        if (!WebPPictureInit(&picture)) {
-            goto cleanup;
+    if (ok && webp.size <= (size_t)INT_MAX) {
+        result = (*env)->NewByteArray(env, (jsize)webp.size);
+        if (result != NULL) {
+            (*env)->SetByteArrayRegion(env, result, 0, (jsize)webp.size, (const jbyte*)webp.bytes);
         }
-        picture.width = gif_result->canvas_width;
-        picture.height = gif_result->canvas_height;
-        picture.use_argb = 1;
-
-        /* WebPPictureImportRGBA allocates the picture buffer itself. */
-        if (!WebPPictureImportRGBA(&picture, frame->rgba_data, gif_result->canvas_width * 4)) {
-            WebPPictureFree(&picture);
-            goto cleanup;
-        }
-
-        int added = WebPAnimEncoderAdd(enc, &picture, timestamp_ms, &config);
-        WebPPictureFree(&picture);
-        if (!added) {
-            goto cleanup;
-        }
-        timestamp_ms += frame->duration_ms;
     }
-
-    /* Finalize (flush last frame) and assemble. */
-    if (!WebPAnimEncoderAdd(enc, NULL, timestamp_ms, NULL) ||
-        !WebPAnimEncoderAssemble(enc, &webp_data)) {
-        goto cleanup;
-    }
-
-    result = (*env)->NewByteArray(env, (jsize)webp_data.size);
-    if (result != NULL) {
-        (*env)->SetByteArrayRegion(env, result, 0, (jsize)webp_data.size, (const jbyte*)webp_data.bytes);
-    }
-
-cleanup:
-    WebPDataClear(&webp_data);
-    if (enc != NULL) {
-        WebPAnimEncoderDelete(enc);
-    }
-    FreeGifDecodeResult(gif_result);
+    WebPDataClear(&webp);
     return result;
 #else
+    (void)env; (void)gifData; (void)quality; (void)lossless; (void)compressionMethod;
+    (void)extractFirstFrameOnly; (void)loopCount; (void)kmin; (void)kmax;
+    (void)minimizeSize; (void)allowMixed; (void)multiThreaded;
     return NULL;
 #endif
 }
@@ -562,59 +820,43 @@ cleanup:
  *
  * Per frame, only WebPPictureImportBGRA's single linear pass runs inside the
  * critical section; the heavy WebPAnimEncoderAdd runs after the frame array
- * is released. Frame arrays are read-only (JNI_ABORT) — they may be live
+ * is released. Frame arrays are read-only (JNI_ABORT) - they may be live
  * BufferedImage backing stores.
  */
 JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAnimated
   (JNIEnv *env, jclass clazz, jobjectArray frames, jintArray delays, jint width, jint height,
    jfloat quality, jboolean lossless, jint compressionMethod, jint loopCount,
    jint kmin, jint kmax, jboolean minimizeSize, jboolean allowMixed, jboolean multiThreaded) {
+    (void)clazz;
     jsize frame_count = (*env)->GetArrayLength(env, frames);
-    if (frame_count == 0 || width <= 0 || height <= 0 ||
+    if (frame_count == 0 || !DimensionsOk(width, height) ||
         (*env)->GetArrayLength(env, delays) < frame_count) {
         return NULL;
     }
     jlong expected_pixels = (jlong)width * height;
 
     jbyteArray result = NULL;
-    WebPAnimEncoder* enc = NULL;
+    AnimCtx anim;
     WebPData webp_data;
     WebPDataInit(&webp_data);
+    memset(&anim, 0, sizeof(anim));
 
-    jint* delay_array = (*env)->GetIntArrayElements(env, delays, NULL);
-    if (delay_array == NULL) {
-        return NULL;
-    }
+    AnimParams params;
+    params.quality = quality;
+    params.lossless = lossless ? 1 : 0;
+    params.method = compressionMethod;
+    params.loop_count = loopCount;
+    params.kmin = kmin;
+    params.kmax = kmax;
+    params.minimize_size = minimizeSize ? 1 : 0;
+    params.allow_mixed = allowMixed ? 1 : 0;
+    params.multi_threaded = multiThreaded ? 1 : 0;
+    params.bgcolor = 0x00000000;  /* transparent background */
 
-    WebPAnimEncoderOptions enc_options;
-    if (!WebPAnimEncoderOptionsInit(&enc_options)) {
-        goto cleanup;
-    }
-    enc_options.anim_params.loop_count = loopCount;
-    enc_options.anim_params.bgcolor = 0x00000000;  /* Transparent background */
-    enc_options.kmin = kmin;
-    enc_options.kmax = kmax;
-    enc_options.minimize_size = minimizeSize ? 1 : 0;
-    enc_options.allow_mixed = allowMixed ? 1 : 0;
-
-    enc = WebPAnimEncoderNew(width, height, &enc_options);
-    if (enc == NULL) {
+    if (!AnimBegin(&anim, width, height, &params)) {
         goto cleanup;
     }
 
-    WebPConfig config;
-    if (!WebPConfigInit(&config)) {
-        goto cleanup;
-    }
-    config.lossless = lossless ? 1 : 0;
-    config.quality = quality;
-    config.method = compressionMethod;
-    config.thread_level = multiThreaded ? 1 : 0;  /* multi-thread each frame's encode */
-    if (!WebPValidateConfig(&config)) {
-        goto cleanup;
-    }
-
-    int timestamp_ms = 0;
     for (jsize i = 0; i < frame_count; i++) {
         jintArray frame = (jintArray)(*env)->GetObjectArrayElement(env, frames, i);
         if (frame == NULL ||
@@ -622,6 +864,9 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAni
             if (frame != NULL) (*env)->DeleteLocalRef(env, frame);
             goto cleanup;
         }
+
+        jint duration = 0;
+        (*env)->GetIntArrayRegion(env, delays, i, 1, &duration);
 
         WebPPicture picture;
         if (!WebPPictureInit(&picture)) {
@@ -641,31 +886,27 @@ JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAni
         }
         (*env)->DeleteLocalRef(env, frame);
 
-        int added = imported && WebPAnimEncoderAdd(enc, &picture, timestamp_ms, &config);
+        int added = imported && AnimAdd(&anim, &picture, duration);
         WebPPictureFree(&picture);
         if (!added) {
             goto cleanup;
         }
-        timestamp_ms += delay_array[i];
     }
 
-    /* Finalize (flush last frame) and assemble. */
-    if (!WebPAnimEncoderAdd(enc, NULL, timestamp_ms, NULL) ||
-        !WebPAnimEncoderAssemble(enc, &webp_data)) {
+    if (!AnimFinish(&anim, &webp_data)) {
         goto cleanup;
     }
 
-    result = (*env)->NewByteArray(env, (jsize)webp_data.size);
-    if (result != NULL) {
-        (*env)->SetByteArrayRegion(env, result, 0, (jsize)webp_data.size, (const jbyte*)webp_data.bytes);
+    if (webp_data.size <= (size_t)INT_MAX) {
+        result = (*env)->NewByteArray(env, (jsize)webp_data.size);
+        if (result != NULL) {
+            (*env)->SetByteArrayRegion(env, result, 0, (jsize)webp_data.size, (const jbyte*)webp_data.bytes);
+        }
     }
 
 cleanup:
     WebPDataClear(&webp_data);
-    if (enc != NULL) {
-        WebPAnimEncoderDelete(enc);
-    }
-    (*env)->ReleaseIntArrayElements(env, delays, delay_array, JNI_ABORT);
+    AnimFree(&anim);
     return result;
 }
 
@@ -676,7 +917,7 @@ cleanup:
  * The input uses GetByteArrayElements, NOT a critical section: the
  * WebPAnimDecoder retains a pointer into the buffer for its whole lifetime,
  * and the frame loop must make JNI calls (NewIntArray, SetIntArrayRegion,
- * SetObjectArrayElement) while that pointer stays valid — both are illegal
+ * SetObjectArrayElement) while that pointer stays valid - both are illegal
  * inside a critical section.
  *
  * The per-frame SetIntArrayRegion copy is unavoidable: the decoder owns and
@@ -684,6 +925,7 @@ cleanup:
  */
 JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_decodeAnimated
   (JNIEnv *env, jclass clazz, jbyteArray webPData, jobject result) {
+    (void)clazz;
     jboolean ok = JNI_FALSE;
     WebPAnimDecoder* dec = NULL;
 
@@ -704,6 +946,7 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_decodeAnima
     /* BGRA frame buffers == Java ARGB ints on LE: frames go into int[]
      * arrays that the Java side wraps directly as TYPE_INT_ARGB images. */
     dec_options.color_mode = MODE_BGRA;
+    dec_options.use_threads = 1;
 
     dec = WebPAnimDecoderNew(&webp_data, &dec_options);
     if (dec == NULL) {
@@ -718,7 +961,13 @@ JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_natives_NativeWebP_decodeAnima
     uint32_t canvas_width = anim_info.canvas_width;
     uint32_t canvas_height = anim_info.canvas_height;
     uint32_t frame_count = anim_info.frame_count;
-    jsize frame_pixels = (jsize)(canvas_width * canvas_height);
+    uint64_t frame_pixels64 = (uint64_t)canvas_width * canvas_height;
+    if (canvas_width == 0 || canvas_height == 0 || frame_count == 0 ||
+        frame_pixels64 > (uint64_t)INT_MAX ||
+        frame_pixels64 * frame_count > WEBP4J_MAX_TOTAL_PIXELS) {
+        goto cleanup;
+    }
+    jsize frame_pixels = (jsize)frame_pixels64;
 
     jobjectArray framePixelsArray =
         (*env)->NewObjectArray(env, (jsize)frame_count, g_int_array_class, NULL);
@@ -774,6 +1023,9 @@ cleanup:
  *
  * Direct C ABI exports for Java 22+ java.lang.foreign downcalls.
  * Bypasses JNIEnv and critical-section pinning overhead completely.
+ *
+ * Memory returned through out_data parameters is allocated by libwebp and
+ * must be released with webp4j_ffm_free (WebPFree).
  * =========================================================================== */
 
 #ifdef _WIN32
@@ -816,77 +1068,95 @@ WEBP4J_FFM_EXPORT int32_t webp4j_ffm_get_features(const uint8_t* data, size_t si
     return 0;
 }
 
-WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode(
-    const uint8_t* pixels, int32_t width, int32_t height,
-    float quality, int32_t lossless, int32_t has_alpha, int32_t multi_threaded,
-    uint8_t** out_data) {
-    if (width <= 0 || height <= 0 || pixels == NULL || out_data == NULL) return 0;
+/* Shared tail of the FFM static encoders: encodes the imported picture, hands over the buffer. */
+static size_t FfmFinishEncode(WebPConfig* config, WebPPicture* pic, WebPMemoryWriter* wrt,
+                              int imported, uint8_t** out_data) {
+    int ok = imported && WebPEncode(config, pic);
+    WebPPictureFree(pic);
+
+    if (ok && wrt->size > 0) {
+        *out_data = wrt->mem;
+        return wrt->size;
+    }
+    WebPMemoryWriterClear(wrt);
+    return 0;
+}
+
+static size_t FfmEncodeArgb(const uint8_t* pixels, int32_t width, int32_t height, int32_t has_alpha,
+                            const EncodeOptions* options, uint8_t** out_data) {
+    if (!DimensionsOk(width, height) || pixels == NULL || out_data == NULL) return 0;
     *out_data = NULL;
 
     WebPConfig config;
     WebPPicture pic;
     WebPMemoryWriter wrt;
-    if (!SetupEncode(&config, &pic, &wrt, width, height, quality,
-                     lossless ? JNI_TRUE : JNI_FALSE,
-                     multi_threaded ? JNI_TRUE : JNI_FALSE)) {
+    if (!SetupEncode(&config, &pic, &wrt, width, height, options)) {
         return 0;
     }
-
     int imported = has_alpha
         ? WebPPictureImportBGRA(&pic, pixels, width * 4)
         : WebPPictureImportBGRX(&pic, pixels, width * 4);
+    return FfmFinishEncode(&config, &pic, &wrt, imported, out_data);
+}
 
-    int ok = imported && WebPEncode(&config, &pic);
-    WebPPictureFree(&pic);
+WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode(
+    const uint8_t* pixels, int32_t width, int32_t height,
+    float quality, int32_t lossless, int32_t has_alpha, int32_t multi_threaded,
+    uint8_t** out_data) {
+    EncodeOptions options;
+    SimpleEncodeOptions(&options, quality, lossless, multi_threaded);
+    return FfmEncodeArgb(pixels, width, height, has_alpha, &options, out_data);
+}
 
-    if (ok && wrt.size > 0) {
-        *out_data = wrt.mem;
-        return wrt.size;
-    }
-    WebPMemoryWriterClear(&wrt);
-    return 0;
+WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_advanced(
+    const uint8_t* pixels, int32_t width, int32_t height, int32_t has_alpha,
+    float quality, int32_t lossless, int32_t method, int32_t near_lossless, int32_t exact,
+    int32_t alpha_quality, int32_t sharp_yuv, int32_t target_size, int32_t multi_threaded,
+    uint8_t** out_data) {
+    EncodeOptions options;
+    options.quality = quality;
+    options.lossless = lossless ? 1 : 0;
+    options.method = method;
+    options.near_lossless = near_lossless;
+    options.exact = exact ? 1 : 0;
+    options.alpha_quality = alpha_quality;
+    options.sharp_yuv = sharp_yuv ? 1 : 0;
+    options.target_size = target_size;
+    options.multi_threaded = multi_threaded ? 1 : 0;
+    return FfmEncodeArgb(pixels, width, height, has_alpha, &options, out_data);
 }
 
 WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_bgr(
     const uint8_t* pixels, int32_t width, int32_t height,
     float quality, int32_t lossless, int32_t multi_threaded,
     uint8_t** out_data) {
-    if (width <= 0 || height <= 0 || pixels == NULL || out_data == NULL) return 0;
+    if (!DimensionsOk(width, height) || pixels == NULL || out_data == NULL) return 0;
     *out_data = NULL;
+
+    EncodeOptions options;
+    SimpleEncodeOptions(&options, quality, lossless, multi_threaded);
 
     WebPConfig config;
     WebPPicture pic;
     WebPMemoryWriter wrt;
-    if (!SetupEncode(&config, &pic, &wrt, width, height, quality,
-                     lossless ? JNI_TRUE : JNI_FALSE,
-                     multi_threaded ? JNI_TRUE : JNI_FALSE)) {
+    if (!SetupEncode(&config, &pic, &wrt, width, height, &options)) {
         return 0;
     }
-
     int imported = WebPPictureImportBGR(&pic, pixels, width * 3);
-    int ok = imported && WebPEncode(&config, &pic);
-    WebPPictureFree(&pic);
-
-    if (ok && wrt.size > 0) {
-        *out_data = wrt.mem;
-        return wrt.size;
-    }
-    WebPMemoryWriterClear(&wrt);
-    return 0;
+    return FfmFinishEncode(&config, &pic, &wrt, imported, out_data);
 }
 
 WEBP4J_FFM_EXPORT int32_t webp4j_ffm_decode_into(
     const uint8_t* data, size_t size,
     uint8_t* output_buffer, size_t output_size, int32_t output_stride) {
-    if (data == NULL || output_buffer == NULL) return 0;
+    if (data == NULL || output_buffer == NULL || output_stride <= 0) return 0;
     uint8_t* res = WebPDecodeBGRAInto(data, size, output_buffer, output_size, (int)output_stride);
     return res != NULL ? 1 : 0;
 }
 
+/* Releases any buffer returned through an out_data parameter of this library. */
 WEBP4J_FFM_EXPORT void webp4j_ffm_free(void* ptr) {
-    if (ptr != NULL) {
-        free(ptr);
-    }
+    WebPFree(ptr);
 }
 
 WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_animated(
@@ -895,69 +1165,57 @@ WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_animated(
     int32_t compression_method, int32_t loop_count, int32_t kmin, int32_t kmax,
     int32_t minimize_size, int32_t allow_mixed, int32_t multi_threaded,
     uint8_t** out_data) {
-    if (frame_count <= 0 || width <= 0 || height <= 0 || frames == NULL || delays == NULL || out_data == NULL) {
+    if (frame_count <= 0 || !DimensionsOk(width, height) || frames == NULL || delays == NULL ||
+        out_data == NULL) {
         return 0;
     }
     *out_data = NULL;
 
-    WebPAnimEncoder* enc = NULL;
+    AnimParams params;
+    params.quality = quality;
+    params.lossless = lossless ? 1 : 0;
+    params.method = compression_method;
+    params.loop_count = loop_count;
+    params.kmin = kmin;
+    params.kmax = kmax;
+    params.minimize_size = minimize_size ? 1 : 0;
+    params.allow_mixed = allow_mixed ? 1 : 0;
+    params.multi_threaded = multi_threaded ? 1 : 0;
+    params.bgcolor = 0x00000000;
+
+    AnimCtx anim;
     WebPData webp_data;
     WebPDataInit(&webp_data);
+    size_t result = 0;
 
-    WebPAnimEncoderOptions enc_options;
-    if (!WebPAnimEncoderOptionsInit(&enc_options)) return 0;
-    enc_options.anim_params.loop_count = loop_count;
-    enc_options.anim_params.bgcolor = 0x00000000;
-    enc_options.kmin = kmin;
-    enc_options.kmax = kmax;
-    enc_options.minimize_size = minimize_size ? 1 : 0;
-    enc_options.allow_mixed = allow_mixed ? 1 : 0;
-
-    enc = WebPAnimEncoderNew(width, height, &enc_options);
-    if (enc == NULL) return 0;
-
-    WebPConfig config;
-    if (!WebPConfigInit(&config)) {
-        WebPAnimEncoderDelete(enc);
-        return 0;
-    }
-    config.lossless = lossless ? 1 : 0;
-    config.quality = quality;
-    config.method = compression_method;
-    config.thread_level = multi_threaded ? 1 : 0;
-    if (!WebPValidateConfig(&config)) {
-        WebPAnimEncoderDelete(enc);
+    if (!AnimBegin(&anim, width, height, &params)) {
+        AnimFree(&anim);
         return 0;
     }
 
-    int timestamp_ms = 0;
     int ok = 1;
-    for (int32_t i = 0; i < frame_count; i++) {
-        if (frames[i] == NULL) { ok = 0; break; }
+    for (int32_t i = 0; i < frame_count && ok; i++) {
         WebPPicture pic;
-        if (!WebPPictureInit(&pic)) { ok = 0; break; }
+        if (frames[i] == NULL || !WebPPictureInit(&pic)) {
+            ok = 0;
+            break;
+        }
         pic.width = width;
         pic.height = height;
         pic.use_argb = 1;
 
-        int imported = WebPPictureImportBGRA(&pic, frames[i], width * 4);
-        int added = imported && WebPAnimEncoderAdd(enc, &pic, timestamp_ms, &config);
+        ok = WebPPictureImportBGRA(&pic, frames[i], width * 4) && AnimAdd(&anim, &pic, delays[i]);
         WebPPictureFree(&pic);
-        if (!added) { ok = 0; break; }
-        timestamp_ms += delays[i];
     }
 
-    if (ok && WebPAnimEncoderAdd(enc, NULL, timestamp_ms, NULL) &&
-        WebPAnimEncoderAssemble(enc, &webp_data)) {
+    if (ok && AnimFinish(&anim, &webp_data)) {
         *out_data = (uint8_t*)webp_data.bytes;
-        size_t total_size = webp_data.size;
-        WebPAnimEncoderDelete(enc);
-        return total_size;
+        result = webp_data.size;
+    } else {
+        WebPDataClear(&webp_data);
     }
-
-    WebPDataClear(&webp_data);
-    if (enc != NULL) WebPAnimEncoderDelete(enc);
-    return 0;
+    AnimFree(&anim);
+    return result;
 }
 
 /* ===========================================================================
@@ -977,6 +1235,7 @@ WEBP4J_FFM_EXPORT void* webp4j_ffm_anim_decoder_new(
     WebPAnimDecoderOptions dec_options;
     if (!WebPAnimDecoderOptionsInit(&dec_options)) return NULL;
     dec_options.color_mode = MODE_BGRA;
+    dec_options.use_threads = 1;
 
     WebPAnimDecoder* dec = WebPAnimDecoderNew(&webp_data, &dec_options);
     if (dec == NULL) return NULL;
@@ -1001,6 +1260,13 @@ WEBP4J_FFM_EXPORT int32_t webp4j_ffm_anim_decoder_get_next(
     if (dec_ptr == NULL || out_frame == NULL) return 0;
     WebPAnimDecoder* dec = (WebPAnimDecoder*)dec_ptr;
 
+    /* The caller-supplied buffer size must match the canvas exactly, never exceed what the decoder owns. */
+    WebPAnimInfo info;
+    if (!WebPAnimDecoderGetInfo(dec, &info) ||
+        frame_bytes != (size_t)info.canvas_width * info.canvas_height * 4) {
+        return 0;
+    }
+
     if (!WebPAnimDecoderHasMoreFrames(dec)) return 0;
 
     uint8_t* buf = NULL;
@@ -1018,13 +1284,9 @@ WEBP4J_FFM_EXPORT void webp4j_ffm_anim_decoder_delete(void* dec_ptr) {
     }
 }
 
+/* Kept for ABI compatibility: all out_data buffers are released the same way. */
 WEBP4J_FFM_EXPORT void webp4j_ffm_free_animated(void* ptr) {
-    if (ptr != NULL) {
-        WebPData webp_data;
-        webp_data.bytes = (uint8_t*)ptr;
-        webp_data.size = 0;
-        WebPDataClear(&webp_data);
-    }
+    WebPFree(ptr);
 }
 
 
@@ -1048,6 +1310,7 @@ WEBP4J_FFM_EXPORT int32_t webp4j_ffm_decode_animated(
         return 0;
     }
     dec_options.color_mode = MODE_BGRA;
+    dec_options.use_threads = 1;
 
     WebPAnimDecoder* dec = WebPAnimDecoderNew(&webp_data, &dec_options);
     if (dec == NULL) {
@@ -1060,16 +1323,22 @@ WEBP4J_FFM_EXPORT int32_t webp4j_ffm_decode_animated(
         return 0;
     }
 
-    uint32_t cw = anim_info.canvas_width;
-    uint32_t ch = anim_info.canvas_height;
-    uint32_t fc = anim_info.frame_count;
-    size_t frame_bytes = (size_t)cw * ch * 4;
+    uint64_t cw = anim_info.canvas_width;
+    uint64_t ch = anim_info.canvas_height;
+    uint64_t fc = anim_info.frame_count;
+    uint64_t frame_px = cw * ch;
+    if (cw == 0 || ch == 0 || fc == 0 || frame_px > (uint64_t)INT32_MAX ||
+        frame_px * fc > WEBP4J_MAX_TOTAL_PIXELS) {
+        WebPAnimDecoderDelete(dec);
+        return 0;
+    }
+    size_t frame_bytes = (size_t)frame_px * 4;
 
-    uint8_t* all_pixels = (uint8_t*)malloc(fc * frame_bytes);
-    int32_t* timestamps = (int32_t*)malloc(fc * sizeof(int32_t));
+    uint8_t* all_pixels = (uint8_t*)WebPMalloc((size_t)fc * frame_bytes);
+    int32_t* timestamps = (int32_t*)WebPMalloc((size_t)fc * sizeof(int32_t));
     if (!all_pixels || !timestamps) {
-        free(all_pixels);
-        free(timestamps);
+        WebPFree(all_pixels);
+        WebPFree(timestamps);
         WebPAnimDecoderDelete(dec);
         return 0;
     }
@@ -1123,170 +1392,23 @@ WEBP4J_FFM_EXPORT size_t webp4j_ffm_encode_gif(
     if (gif_bytes == NULL || data_size == 0 || out_data == NULL) return 0;
     *out_data = NULL;
 
-    if (extract_first) {
-        int cw = 0, ch = 0;
-        GifFrame* frame = DecodeGifFirstFrame(gif_bytes, data_size, &cw, &ch);
-        if (frame == NULL) return 0;
+    GifConvertParams params;
+    params.quality = quality;
+    params.lossless = lossless ? 1 : 0;
+    params.method = compression_method;
+    params.extract_first = extract_first ? 1 : 0;
+    params.loop_count = loop_count;
+    params.kmin = kmin;
+    params.kmax = kmax;
+    params.minimize_size = minimize_size ? 1 : 0;
+    params.allow_mixed = allow_mixed ? 1 : 0;
+    params.multi_threaded = multi_threaded ? 1 : 0;
 
-        uint8_t* output = NULL;
-        size_t output_size = lossless
-            ? WebPEncodeLosslessRGBA(frame->rgba_data, cw, ch, cw * 4, &output)
-            : WebPEncodeRGBA(frame->rgba_data, cw, ch, cw * 4, quality, &output);
-        FreeGifFrame(frame);
-        if (output_size > 0 && output != NULL) {
-            *out_data = output;
-            return output_size;
-        }
+    WebPData webp;
+    if (!ConvertGif(gif_bytes, data_size, &params, &webp)) {
         return 0;
     }
-
-    GifDecodeResult* gif_res = DecodeGifFromMemory(gif_bytes, data_size);
-    if (gif_res == NULL) return 0;
-
-    if (gif_res->frame_count == 1) {
-        int cw = gif_res->canvas_width;
-        int ch = gif_res->canvas_height;
-        uint8_t* output = NULL;
-        size_t output_size = lossless
-            ? WebPEncodeLosslessRGBA(gif_res->frames[0].rgba_data, cw, ch, cw * 4, &output)
-            : WebPEncodeRGBA(gif_res->frames[0].rgba_data, cw, ch, cw * 4, quality, &output);
-        FreeGifDecodeResult(gif_res);
-        if (output_size > 0 && output != NULL) {
-            *out_data = output;
-            return output_size;
-        }
-        return 0;
-    }
-
-    WebPAnimEncoder* enc = NULL;
-    WebPData webp_data;
-    WebPDataInit(&webp_data);
-
-    WebPAnimEncoderOptions enc_options;
-    if (!WebPAnimEncoderOptionsInit(&enc_options)) {
-        FreeGifDecodeResult(gif_res);
-        return 0;
-    }
-    enc_options.anim_params.loop_count = loop_count == -1 ? gif_res->loop_count : loop_count;
-    enc_options.anim_params.bgcolor = 0x00000000;
-    enc_options.kmin = kmin;
-    enc_options.kmax = kmax;
-    enc_options.minimize_size = minimize_size ? 1 : 0;
-    enc_options.allow_mixed = allow_mixed ? 1 : 0;
-
-    enc = WebPAnimEncoderNew(gif_res->canvas_width, gif_res->canvas_height, &enc_options);
-    if (enc == NULL) {
-        FreeGifDecodeResult(gif_res);
-        return 0;
-    }
-
-    WebPConfig config;
-    if (!WebPConfigInit(&config)) {
-        WebPAnimEncoderDelete(enc);
-        FreeGifDecodeResult(gif_res);
-        return 0;
-    }
-    config.lossless = lossless ? 1 : 0;
-    config.quality = quality;
-    config.method = compression_method;
-    config.thread_level = multi_threaded ? 1 : 0;
-    if (!WebPValidateConfig(&config)) {
-        WebPAnimEncoderDelete(enc);
-        FreeGifDecodeResult(gif_res);
-        return 0;
-    }
-
-    int timestamp_ms = 0;
-    int ok = 1;
-    for (int i = 0; i < gif_res->frame_count; i++) {
-        WebPPicture pic;
-        if (!WebPPictureInit(&pic)) { ok = 0; break; }
-        pic.width = gif_res->canvas_width;
-        pic.height = gif_res->canvas_height;
-        pic.use_argb = 1;
-
-        int imported = WebPPictureImportRGBA(&pic, gif_res->frames[i].rgba_data, gif_res->canvas_width * 4);
-        int added = imported && WebPAnimEncoderAdd(enc, &pic, timestamp_ms, &config);
-        WebPPictureFree(&pic);
-        if (!added) { ok = 0; break; }
-        timestamp_ms += gif_res->frames[i].duration_ms;
-    }
-    FreeGifDecodeResult(gif_res);
-
-    if (ok && WebPAnimEncoderAdd(enc, NULL, timestamp_ms, NULL) &&
-        WebPAnimEncoderAssemble(enc, &webp_data)) {
-        *out_data = (uint8_t*)webp_data.bytes;
-        size_t total_size = webp_data.size;
-        WebPAnimEncoderDelete(enc);
-        return total_size;
-    }
-
-    WebPDataClear(&webp_data);
-    if (enc != NULL) WebPAnimEncoderDelete(enc);
-    return 0;
+    *out_data = (uint8_t*)webp.bytes;
+    return webp.size;
 }
 #endif
-
-/* Compatibility wrappers for Java_xyz_lychee_webp4j_jni_NativeWebP_* */
-JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_getLibWebPVersion(JNIEnv *env, jclass cls) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getLibWebPVersion(env, cls);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_getInfo(JNIEnv *env, jclass cls, jbyteArray data, jintArray dims) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getInfo(env, cls, data, dims);
-}
-JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_getFeatures(JNIEnv *env, jclass cls, jbyteArray data, jint size, jobject feat) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getFeatures(env, cls, data, size, feat);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_encode(JNIEnv *env, jclass cls, jintArray px, jint w, jint h, jfloat q, jboolean l, jboolean a, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encode(env, cls, px, w, h, q, l, a, mt);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_encodeBgr(JNIEnv *env, jclass cls, jbyteArray px, jint w, jint h, jfloat q, jboolean l, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr(env, cls, px, w, h, q, l, mt);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_decodeInto(JNIEnv *env, jclass cls, jbyteArray d, jintArray out, jint s) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_decodeInto(env, cls, d, out, s);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_getGifInfo(JNIEnv *env, jclass cls, jbyteArray gd, jobject info) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getGifInfo(env, cls, gd, info);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_encodeGifToWebP(JNIEnv *env, jclass cls, jbyteArray gd, jfloat q, jboolean l, jint m, jboolean f, jint loop, jint kmin, jint kmax, jboolean min, jboolean mix, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encodeGifToWebP(env, cls, gd, q, l, m, f, loop, kmin, kmax, min, mix, mt);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_encodeAnimated(JNIEnv *env, jclass cls, jobjectArray fr, jintArray d, jint w, jint h, jfloat q, jboolean l, jint m, jint loop, jint kmin, jint kmax, jboolean min, jboolean mix, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAnimated(env, cls, fr, d, w, h, q, l, m, loop, kmin, kmax, min, mix, mt);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_jni_NativeWebP_decodeAnimated(JNIEnv *env, jclass cls, jbyteArray d, jobject res) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_decodeAnimated(env, cls, d, res);
-}
-
-/* Compatibility wrappers for Java_xyz_lychee_webp4j_internal_NativeWebP_* */
-JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getLibWebPVersion(JNIEnv *env, jclass cls) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getLibWebPVersion(env, cls);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getInfo(JNIEnv *env, jclass cls, jbyteArray data, jintArray dims) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getInfo(env, cls, data, dims);
-}
-JNIEXPORT jint JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getFeatures(JNIEnv *env, jclass cls, jbyteArray data, jint size, jobject feat) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getFeatures(env, cls, data, size, feat);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encode(JNIEnv *env, jclass cls, jintArray px, jint w, jint h, jfloat q, jboolean l, jboolean a, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encode(env, cls, px, w, h, q, l, a, mt);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encodeBgr(JNIEnv *env, jclass cls, jbyteArray px, jint w, jint h, jfloat q, jboolean l, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encodeBgr(env, cls, px, w, h, q, l, mt);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_decodeInto(JNIEnv *env, jclass cls, jbyteArray d, jintArray out, jint s) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_decodeInto(env, cls, d, out, s);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_getGifInfo(JNIEnv *env, jclass cls, jbyteArray gd, jobject info) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_getGifInfo(env, cls, gd, info);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encodeGifToWebP(JNIEnv *env, jclass cls, jbyteArray gd, jfloat q, jboolean l, jint m, jboolean f, jint loop, jint kmin, jint kmax, jboolean min, jboolean mix, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encodeGifToWebP(env, cls, gd, q, l, m, f, loop, kmin, kmax, min, mix, mt);
-}
-JNIEXPORT jbyteArray JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_encodeAnimated(JNIEnv *env, jclass cls, jobjectArray fr, jintArray d, jint w, jint h, jfloat q, jboolean l, jint m, jint loop, jint kmin, jint kmax, jboolean min, jboolean mix, jboolean mt) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_encodeAnimated(env, cls, fr, d, w, h, q, l, m, loop, kmin, kmax, min, mix, mt);
-}
-JNIEXPORT jboolean JNICALL Java_xyz_lychee_webp4j_internal_NativeWebP_decodeAnimated(JNIEnv *env, jclass cls, jbyteArray d, jobject res) {
-    return Java_xyz_lychee_webp4j_natives_NativeWebP_decodeAnimated(env, cls, d, res);
-}

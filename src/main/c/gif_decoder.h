@@ -1,101 +1,58 @@
-#ifndef WEBP4J_GIF_DECODER_H_
-#define WEBP4J_GIF_DECODER_H_
+#ifndef WEBP4J_GIF_DECODER_H
+#define WEBP4J_GIF_DECODER_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * Represents a single frame in a GIF animation.
- *
- * Frames are always full canvas-sized composites
- * (canvas_width * canvas_height * 4 bytes of RGBA).
+/*
+ * Sanity cap on the number of pixels of a GIF canvas or of a single frame raster. A GIF header can
+ * declare a 65535x65535 canvas (17 GB of RGBA); anything above this cap is rejected before any
+ * memory is reserved. Override at compile time with -DWEBP4J_GIF_MAX_PIXELS=...
  */
+#ifndef WEBP4J_GIF_MAX_PIXELS
+#define WEBP4J_GIF_MAX_PIXELS 100000000LL
+#endif
+
 typedef struct {
-    uint8_t* rgba_data;  // RGBA pixel data (canvas_width * canvas_height * 4 bytes)
-    int duration_ms;     // Frame duration in milliseconds
-} GifFrame;
+    int canvas_width;
+    int canvas_height;
+    int loop_count;        /* NETSCAPE2.0 loop count seen so far (0 = infinite) */
+    int has_transparency;  /* a Graphic Control Extension with a transparent index was seen */
+    int frame_index;       /* zero-based index of the frame being delivered */
+} GifStreamInfo;
 
-/**
- * Holds all decoded GIF data including frames and metadata.
+/*
+ * Receives each frame, composed onto the persistent canvas, as canvas-sized straight-alpha RGBA.
+ * The buffer is only valid during the call. Return 1 to continue decoding, 0 to stop (not an error).
  */
-typedef struct {
-    GifFrame* frames;       // Array of frames
-    int frame_count;        // Number of frames
-    int loop_count;         // Loop count (0=infinite, N=loop N times)
-    int canvas_width;       // Canvas width (logical screen width)
-    int canvas_height;      // Canvas height (logical screen height)
-    uint32_t bgcolor;       // Background color in ARGB format
-    int has_transparency;   // 1 if any frame has transparency, 0 otherwise
-} GifDecodeResult;
+typedef int (*GifFrameCallback)(void* user, const GifStreamInfo* info,
+                                const uint8_t* rgba, int duration_ms);
 
-/**
- * Decodes entire GIF animation from memory.
+/*
+ * Single-pass streaming GIF decode. Memory use is O(canvas) regardless of the number of frames:
+ * one canvas plus, only if a frame uses "restore previous" disposal, one snapshot.
+ * Handles interlaced images and clears only the frame rectangle for "restore to background".
  *
- * This function decodes all frames from a GIF image stored in memory.
- * It handles palette conversion, transparency, disposal methods, and blending.
- *
- * @param data Pointer to GIF image data in memory
- * @param data_size Size of GIF data in bytes
- * @return GifDecodeResult* on success, NULL on failure
- *         Caller must free result using FreeGifDecodeResult()
+ * Returns 1 if at least one frame was delivered, 0 on failure. out_info (optional) receives the
+ * final stream state.
  */
-GifDecodeResult* DecodeGifFromMemory(const uint8_t* data, size_t data_size);
+int DecodeGifStream(const uint8_t* data, size_t data_size,
+                    GifFrameCallback callback, void* user, GifStreamInfo* out_info);
 
-/**
- * Decodes only the first frame of a GIF (for static GIF conversion).
- *
- * This is an optimized path for converting static GIFs or extracting
- * only the first frame of an animated GIF.
- *
- * @param data Pointer to GIF image data in memory
- * @param data_size Size of GIF data in bytes
- * @param canvas_width Output parameter for canvas width
- * @param canvas_height Output parameter for canvas height
- * @return GifFrame* on success, NULL on failure
- *         Caller must free result using FreeGifFrame()
- */
-GifFrame* DecodeGifFirstFrame(const uint8_t* data, size_t data_size,
-                               int* canvas_width, int* canvas_height);
-
-/**
- * Gets GIF metadata without full decode.
- *
- * This is a lightweight operation for querying GIF properties without
- * decoding pixel data.
- *
- * @param data Pointer to GIF image data in memory
- * @param data_size Size of GIF data in bytes
- * @param width Output parameter for image width
- * @param height Output parameter for image height
- * @param frame_count Output parameter for number of frames
- * @param loop_count Output parameter for loop count (0=infinite)
- * @param has_transparency Output parameter (1=has transparency, 0=none)
- * @return 1 on success, 0 on failure
+/*
+ * Reads GIF metadata without decompressing the image data (compressed blocks are skipped).
+ * Returns 1 on success, 0 on failure.
  */
 int GetGifInfo(const uint8_t* data, size_t data_size,
                int* width, int* height, int* frame_count,
                int* loop_count, int* has_transparency);
 
-/**
- * Frees memory allocated by DecodeGifFromMemory().
- *
- * @param result Pointer to GifDecodeResult to free
- */
-void FreeGifDecodeResult(GifDecodeResult* result);
-
-/**
- * Frees memory allocated by DecodeGifFirstFrame().
- *
- * @param frame Pointer to GifFrame to free
- */
-void FreeGifFrame(GifFrame* frame);
-
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // WEBP4J_GIF_DECODER_H_
+#endif /* WEBP4J_GIF_DECODER_H */

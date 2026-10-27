@@ -324,6 +324,26 @@ target_include_directories(gif PUBLIC ${GIFLIB_SOURCE_DIR})
       endif()
   endif()
 
+  # ============================================
+  # Hardening (applies to the JNI/FFM glue; libwebp is built with the same flags)
+  # ============================================
+
+  set(WEBP4J_GIF_MAX_PIXELS "100000000" CACHE STRING "Maximum pixels of a GIF canvas or frame accepted by the native GIF decoder")
+  target_compile_definitions(webp4j PRIVATE WEBP4J_GIF_MAX_PIXELS=${WEBP4J_GIF_MAX_PIXELS}LL)
+
+  if(NOT MSVC)
+      if(UNIX)
+          target_compile_options(webp4j PRIVATE -fstack-protector-strong -D_FORTIFY_SOURCE=2)
+      endif()
+      if(UNIX AND NOT APPLE)
+          # Read-only relocations, immediate binding, non-executable stack
+          target_link_options(webp4j PRIVATE -Wl,-z,relro,-z,now,-z,noexecstack)
+      elseif(WIN32)
+          # ASLR and DEP; no dependency on the MinGW runtime DLLs
+          target_link_options(webp4j PRIVATE -static-libgcc -Wl,--dynamicbase -Wl,--nxcompat)
+      endif()
+  endif()
+
   # Strip symbols to reduce library file size (Release mode)
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
       if(UNIX AND NOT APPLE)
