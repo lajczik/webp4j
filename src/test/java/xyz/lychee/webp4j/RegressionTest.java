@@ -710,6 +710,29 @@ class RegressionTest {
     }
 
     @Test
+    void animatedWebPEncoderSupportsWebPEncoderOptions() throws IOException {
+        BufferedImage f1 = image(20, 20, BufferedImage.TYPE_INT_ARGB, 1);
+        BufferedImage f2 = image(20, 20, BufferedImage.TYPE_INT_ARGB, 2);
+        WebPEncoderOptions options = WebPEncoderOptions.lossy(80f)
+                .setSharpYuv(true)
+                .setExif("EXIF-ANIM".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        byte[] anim = AnimatedWebPEncoder.encodeWithOptions(Arrays.asList(f1, f2), 120, options);
+        assertSingleRiff(anim);
+        assertEquals(2, AnimatedWebPDecoder.getFrameCount(anim));
+        assertArrayEquals("EXIF-ANIM".getBytes(java.nio.charset.StandardCharsets.UTF_8), WebPDecoder.getExifMetadata(anim));
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 20, 20)) {
+            encoder.addFrame(f1, 100, options);
+            encoder.addFrame(f2, 100, WebPEncoderOptions.lossless(70));
+        }
+        byte[] frameLevel = baos.toByteArray();
+        assertSingleRiff(frameLevel);
+        assertEquals(2, AnimatedWebPDecoder.getFrameCount(frameLevel));
+    }
+
+    @Test
     void webpDecoderRejectsNullWithoutException() {
         assertFalse(WebPDecoder.decodeInto(null, new int[10], 4));
         assertFalse(WebPDecoder.decodeInto(new byte[10], null, 4));

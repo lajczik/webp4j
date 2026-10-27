@@ -155,6 +155,9 @@ try (FileOutputStream out = new FileOutputStream("custom_anim.webp");
     // Frame 1: Transparent overlay with canvas background wipe
     encoder.setFrame(1, frame2, 120, 85.0f, false,
             WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
+
+    // Individual frames can also use fine-grained WebPEncoderOptions:
+    // encoder.addFrame(frame3, 100, WebPEncoderOptions.lossy(85f).setSharpYuv(true));
 } // close() writes the animation
 
 // Raw pixel frames may be placed at an offset; offsets must be even (the container stores x/2, y/2):

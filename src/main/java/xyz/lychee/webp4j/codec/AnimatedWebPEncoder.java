@@ -3,6 +3,7 @@ package xyz.lychee.webp4j.codec;
 import xyz.lychee.webp4j.chunks.*;
 import xyz.lychee.webp4j.model.GifToWebPConfig;
 import xyz.lychee.webp4j.model.WebPContainerFlag;
+import xyz.lychee.webp4j.model.WebPEncoderOptions;
 import xyz.lychee.webp4j.model.WebPFrameFlag;
 import xyz.lychee.webp4j.natives.NativeWebP;
 import xyz.lychee.webp4j.utils.PixelConverter;
@@ -93,6 +94,24 @@ public class AnimatedWebPEncoder implements AutoCloseable {
         this.xmp = xmp;
     }
 
+    /**
+     * Copies container metadata (EXIF, ICC profile, XMP) from the provided options if present.
+     */
+    public void setMetadata(WebPEncoderOptions options) {
+        if (options == null) {
+            return;
+        }
+        if (options.getExif() != null) {
+            setExif(options.getExif());
+        }
+        if (options.getIccProfile() != null) {
+            setIccProfile(options.getIccProfile());
+        }
+        if (options.getXmp() != null) {
+            setXmp(options.getXmp());
+        }
+    }
+
     /** Number of frame slots set so far (including unset slots below the highest index). */
     public int getFrameCount() {
         return frames.size();
@@ -146,6 +165,11 @@ public class AnimatedWebPEncoder implements AutoCloseable {
         this.setFrame(index, frame, duration, quality, false, flags);
     }
 
+    public void setFrame(int index, BufferedImage frame, int duration, WebPEncoderOptions options, WebPFrameFlag... flags) throws IOException {
+        ANMFChunk chunk = buildFrame(frame, duration, options, flags);
+        this.setFrame(index, chunk);
+    }
+
     public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, int flags, float quality) throws IOException {
         this.setFrame(index, pixels, x, y, width, height, duration, flags, quality, false);
     }
@@ -163,6 +187,36 @@ public class AnimatedWebPEncoder implements AutoCloseable {
             failed = true;
             throw e;
         }
+    }
+
+    public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, int flags, WebPEncoderOptions options) throws IOException {
+        if (options == null) {
+            throw new IllegalArgumentException("Options cannot be null");
+        }
+        ensureWritable();
+        try {
+            byte[] webPData;
+            if (options.requiresAdvancedEncoder()) {
+                webPData = NativeWebP.encodeAdvanced(pixels, width, height, this.alpha, options.getQuality(),
+                        options.isLossless(), options.getMethod(), options.getNearLossless(), options.isExact(),
+                        options.getAlphaQuality(), options.isSharpYuv(), options.getTargetSize(), options.isMultiThreaded());
+            } else {
+                webPData = NativeWebP.encode(pixels, width, height, options.getQuality(), options.isLossless(),
+                        this.alpha, options.isMultiThreaded());
+            }
+            if (webPData == null || webPData.length == 0) {
+                throw new IOException("Failed to encode frame " + index);
+            }
+            Chunk[] subchunks = ChunkFactory.getChunks(webPData);
+            this.setFrame(index, new ANMFChunk(x, y, width, height, duration, flags, subchunks));
+        } catch (IOException | RuntimeException e) {
+            failed = true;
+            throw e;
+        }
+    }
+
+    public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, WebPEncoderOptions options, WebPFrameFlag... flags) throws IOException {
+        setFrame(index, pixels, x, y, width, height, duration, WebPFrameFlag.toMask(flags), options);
     }
 
     public void setFrame(int index, int[] pixels, int x, int y, int width, int height, int duration, float quality, boolean lossless, WebPFrameFlag... flags) throws IOException {
@@ -199,12 +253,29 @@ public class AnimatedWebPEncoder implements AutoCloseable {
         this.addFrame(frame, duration, quality, false, flags);
     }
 
+    public void addFrame(BufferedImage frame, int duration, WebPEncoderOptions options, WebPFrameFlag... flags) throws IOException {
+        this.addFrame(buildFrame(frame, duration, options, flags));
+    }
+
     public void addFrame(ANMFChunk frame) {
         ensureWritable();
         if (frame == null) {
             throw new IllegalArgumentException("Frame cannot be null");
         }
         this.frames.add(frame);
+    }
+
+    private ANMFChunk buildFrame(BufferedImage frame, int duration, WebPEncoderOptions options,
+                                 WebPFrameFlag[] flags) throws IOException {
+        ensureWritable();
+        try {
+            byte[] webPData = WebPEncoder.encode(frame, options);
+            Chunk[] subchunks = ChunkFactory.getChunks(webPData);
+            return new ANMFChunk(0, 0, frame.getWidth(), frame.getHeight(), duration, WebPFrameFlag.toMask(flags), subchunks);
+        } catch (IOException | RuntimeException e) {
+            failed = true;
+            throw e;
+        }
     }
 
     private ANMFChunk buildFrame(BufferedImage frame, int duration, float quality, boolean lossless,
@@ -378,6 +449,80 @@ public class AnimatedWebPEncoder implements AutoCloseable {
                         WebPFrameFlag.NO_BLEND);
             }
         }
+    }
+
+    /**
+     * Creates an animated WebP from a list of frames using fine-grained {@link WebPEncoderOptions}
+     * and optional container metadata.
+     */
+    public static byte[] encodeWithOptions(List<BufferedImage> frames, int[] delays, WebPEncoderOptions options) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        encodeWithOptions(baos, frames, delays, options);
+        return baos.toByteArray();
+    }
+
+    /**
+     * Creates an animated WebP with uniform frame delay using fine-grained {@link WebPEncoderOptions}.
+     */
+    public static byte[] encodeWithOptions(List<BufferedImage> frames, int delay, WebPEncoderOptions options) throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IllegalArgumentException("Frames list cannot be null or empty");
+        }
+        int[] delays = new int[frames.size()];
+        Arrays.fill(delays, delay);
+        return encodeWithOptions(frames, delays, options);
+    }
+
+    /**
+     * Streams an animated WebP to an output stream using fine-grained {@link WebPEncoderOptions}.
+     */
+    public static void encodeWithOptions(OutputStream out, List<BufferedImage> frames, int[] delays, WebPEncoderOptions options) throws IOException {
+        if (out == null) {
+            throw new IllegalArgumentException("OutputStream cannot be null");
+        }
+        if (options == null) {
+            throw new IllegalArgumentException("Options cannot be null");
+        }
+        validate(frames, delays);
+
+        BufferedImage first = frames.get(0);
+        int width = first.getWidth();
+        int height = first.getHeight();
+
+        boolean hasAlpha = false;
+        for (BufferedImage frame : frames) {
+            if (frame.getWidth() != width || frame.getHeight() != height) {
+                throw new IllegalArgumentException(
+                        String.format("Frame dimensions (%dx%d) don't match canvas (%dx%d)",
+                                frame.getWidth(), frame.getHeight(), width, height));
+            }
+            if (frame.getColorModel().hasAlpha()) {
+                hasAlpha = true;
+            }
+        }
+
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(out, hasAlpha, width, height, 0, 0)) {
+            encoder.setMetadata(options);
+            for (int i = 0; i < frames.size(); i++) {
+                encoder.setFrame(i, frames.get(i), delays[i], options, WebPFrameFlag.NO_BLEND);
+            }
+        }
+    }
+
+    public static void encodeWithOptions(File file, List<BufferedImage> frames, int[] delays, WebPEncoderOptions options) throws IOException {
+        Util.writeBytes(file, encodeWithOptions(frames, delays, options));
+    }
+
+    public static void encodeWithOptions(Path path, List<BufferedImage> frames, int[] delays, WebPEncoderOptions options) throws IOException {
+        Util.writeBytes(path, encodeWithOptions(frames, delays, options));
+    }
+
+    public static void encodeWithOptions(File file, List<BufferedImage> frames, int delay, WebPEncoderOptions options) throws IOException {
+        Util.writeBytes(file, encodeWithOptions(frames, delay, options));
+    }
+
+    public static void encodeWithOptions(Path path, List<BufferedImage> frames, int delay, WebPEncoderOptions options) throws IOException {
+        Util.writeBytes(path, encodeWithOptions(frames, delay, options));
     }
 
     /**

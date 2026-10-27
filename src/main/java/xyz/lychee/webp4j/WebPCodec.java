@@ -419,20 +419,40 @@ public final class WebPCodec {
         return AnimatedWebPEncoder.encode(frames, delays, config);
     }
 
+    public static byte[] createAnimatedWebPWithOptions(List<BufferedImage> frames, int[] delays, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        return AnimatedWebPEncoder.encodeWithOptions(frames, delays, options);
+    }
+
     public static byte[] createAnimatedWebP(List<BufferedImage> frames, int delay, GifToWebPConfig config) throws IOException {
         return AnimatedWebPEncoder.encode(frames, delay, config);
+    }
+
+    public static byte[] createAnimatedWebPWithOptions(List<BufferedImage> frames, int delay, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        return AnimatedWebPEncoder.encodeWithOptions(frames, delay, options);
     }
 
     public static void createAnimatedWebP(OutputStream out, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
         AnimatedWebPEncoder.encode(out, frames, delays, config);
     }
 
+    public static void createAnimatedWebPWithOptions(OutputStream out, List<BufferedImage> frames, int[] delays, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        AnimatedWebPEncoder.encodeWithOptions(out, frames, delays, options);
+    }
+
     public static void createAnimatedWebP(File file, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
         AnimatedWebPEncoder.encode(file, frames, delays, config);
     }
 
+    public static void createAnimatedWebPWithOptions(File file, List<BufferedImage> frames, int[] delays, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        AnimatedWebPEncoder.encodeWithOptions(file, frames, delays, options);
+    }
+
     public static void createAnimatedWebP(Path path, List<BufferedImage> frames, int[] delays, GifToWebPConfig config) throws IOException {
         AnimatedWebPEncoder.encode(path, frames, delays, config);
+    }
+
+    public static void createAnimatedWebPWithOptions(Path path, List<BufferedImage> frames, int[] delays, xyz.lychee.webp4j.model.WebPEncoderOptions options) throws IOException {
+        AnimatedWebPEncoder.encodeWithOptions(path, frames, delays, options);
     }
 
     // ============================================
