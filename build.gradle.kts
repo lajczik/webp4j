@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "io.github.lajczik"
-version = "2.6.0"
+version = "2.7.0"
 
 repositories {
     mavenCentral()
@@ -84,6 +84,21 @@ tasks.named<Test>("test") {
     classpath = files(compileJava22.map { it.destinationDirectory }) + classpath
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     useJUnitPlatform()
+}
+
+// The same suite against the JNI backend (what Java 8-21 users get): the Java 22 classes stay off the classpath.
+val testJni = tasks.register<Test>("testJni") {
+    description = "Runs the test suite against the JNI backend"
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    systemProperty("webp4j.backend", "jni")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    useJUnitPlatform()
+}
+
+tasks.named("check") {
+    dependsOn(testJni)
 }
 
 ////////////////////////////////////

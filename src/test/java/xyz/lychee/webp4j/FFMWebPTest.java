@@ -13,13 +13,15 @@ public class FFMWebPTest {
     @Test
     public void testFFMBackendActiveOnJava22Plus() {
         String javaVersion = System.getProperty("java.specification.version");
+        // The testJni Gradle task leaves the Java 22 classes off the classpath and sets this property.
+        boolean forcedJni = "jni".equalsIgnoreCase(System.getProperty("webp4j.backend"));
         int major = 8;
         try {
             major = Integer.parseInt(javaVersion.contains(".") ? javaVersion.split("\\.")[1] : javaVersion);
         } catch (NumberFormatException ignored) {
         }
 
-        if (major >= 22) {
+        if (major >= 22 && !forcedJni) {
             if (NativeWebP.unavailabilityCause() != null) {
                 NativeWebP.unavailabilityCause().printStackTrace();
             }

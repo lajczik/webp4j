@@ -85,7 +85,7 @@ public class EncoderTest {
         int height = 48;
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
-        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 3, width, height, 0, 0)) {
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, width, height, 0, 0)) {
             BufferedImage f1 = createTestImage(width, height, true);
             BufferedImage f2 = createTestImage(width, height, true);
             BufferedImage f3 = createTestImage(width, height, true);
@@ -93,7 +93,6 @@ public class EncoderTest {
             encoder.setFrame(0, f1, 100, 80.0f, false);
             encoder.setFrame(1, f2, 120, 80.0f, false);
             encoder.setFrame(2, f3, 140, 80.0f, false);
-            encoder.flush();
         }
 
         byte[] animBytes = baos.toByteArray();

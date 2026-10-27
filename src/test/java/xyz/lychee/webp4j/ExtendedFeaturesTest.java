@@ -260,7 +260,7 @@ public class ExtendedFeaturesTest {
 
         // AnimatedWebPEncoder with WebPFrameFlag
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 2, 20, 20)) {
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 20, 20)) {
             BufferedImage f1 = createTestImage(20, 20, true);
             BufferedImage f2 = createTestImage(20, 20, false);
             encoder.setFrame(0, f1, 100, 80.0f, false, WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);

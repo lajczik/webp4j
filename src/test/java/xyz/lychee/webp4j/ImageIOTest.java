@@ -155,7 +155,7 @@ class ImageIOTest {
     void testImageIOAnimatedWebPReaderMultiImage() throws IOException {
         // Create an animated WebP with 2 frames
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 2, 30, 30)) {
+        try (AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(baos, true, 30, 30)) {
             BufferedImage f1 = createTestImage(30, 30, false);
             BufferedImage f2 = createTestImage(30, 30, true);
             encoder.setFrame(0, f1, 100, 80.0f, false, WebPFrameFlag.ALPHA_BLENDING, WebPFrameFlag.NO_DISPOSE);

@@ -31,7 +31,7 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
   - **Streaming frame-by-frame composer** (`AnimatedWebPEncoder`) with precise control over frame offsets, alpha blending (`ALPHA_BLENDING`, `NO_BLEND`), and disposal methods (`DISPOSE_TO_BACKGROUND`, `NO_DISPOSE`).
   - Configurable canvas background color, infinite loops, and custom loop counts.
   - Automatic **Frame Normalization** (`CONTAIN`, `COVER`, `STRETCH`) for assembling animations from mismatched image sizes.
-- 🎞️ **High-Speed Animated WebP Decoding**:
+- 🎞️ **Animated WebP Decoding**:
   - Extract frames with accurate cumulative timestamps and display delays.
   - **O(1) Instant Header Inspection**: Query canvas dimensions, frame count, loop count, and transparency directly from container chunks in microseconds without decoding pixel buffers.
 - ☕ **Standard Java `ImageIO` Integration**:
@@ -50,7 +50,7 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
 - ⚡ **Zero-Copy & Multi-Core Performance**:
   - Direct JNI raster extraction avoiding intermediate format conversion buffers.
   - Native multi-threaded tile encoding via libwebp's `thread_level`.
-  - Dedicated **`BatchProcessor`** for concurrent, multi-threaded bulk encoding and decoding.
+  - Dedicated **`BatchProcessor`** for concurrent bulk encoding and decoding, including bounded-memory streaming (`encodeEach` / `decodeEach`).
 - 🔄 **GIF to WebP Conversion**:
   - Dual-engine pipeline: native high-speed `giflib` decoder with graceful fallback to Java ImageIO.
 - 🌐 **True Cross-Platform Support**:
@@ -66,14 +66,14 @@ Whether you need to generate lightweight **animated WebP** banners from scratch,
 <dependency>
     <groupId>io.github.lajczik</groupId>
     <artifactId>webp4j</artifactId>
-    <version>2.6.0</version>
+    <version>2.7.0</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'io.github.lajczik:webp4j:2.6.0'
+implementation 'io.github.lajczik:webp4j:2.7.0'
 ```
 
 ### Supported Environments
@@ -83,6 +83,8 @@ implementation 'io.github.lajczik:webp4j:2.6.0'
 | **Windows** | x86_64, aarch64 (ARM64) | `.dll` | JNI / FFM |
 | **macOS** | x86_64 (Intel), arm64 (Apple Silicon) | `.dylib` | JNI / FFM |
 | **Linux** | x86_64, aarch64 (ARM64) | `.so` | JNI / FFM |
+
+> **Building from source** requires JDK 22 or newer (the FFM classes are compiled with `--release 22`; the rest targets Java 8). `./gradlew check` runs the suite on both backends (`test` = FFM, `testJni` = JNI).
 
 > **Java 22+ Note**: WebP4j packages a Multi-Release JAR with Automatic Module `xyz.lychee.webp4j`. When running on Java 22+, use `--enable-native-access=xyz.lychee.webp4j` (or `ALL-UNNAMED` on classpath) to allow unrestricted native access without JVM warnings.
 
@@ -126,9 +128,9 @@ GifToWebPConfig config = GifToWebPConfig.createLosslessConfig()
 AnimatedWebPEncoder.encode(new File("output_animation.webp"), normalizedFrames, delays, config);
 ```
 
-### 2. Fine-Grained Frame-by-Frame Streaming Encoder
+### 2. Fine-Grained Frame-by-Frame Encoder
 
-For advanced control over blending, disposal methods, canvas backgrounds, and frame coordinates:
+For advanced control over blending, disposal methods, canvas backgrounds, and frame coordinates. Frames are collected in memory and the container is written **once, when the encoder is closed** (`close()` is idempotent; if encoding a frame throws, nothing is written):
 
 ```java
 import xyz.lychee.webp4j.codec.AnimatedWebPEncoder;
@@ -138,9 +140,8 @@ import java.io.FileOutputStream;
 
 try (FileOutputStream out = new FileOutputStream("custom_anim.webp");
      AnimatedWebPEncoder encoder = new AnimatedWebPEncoder(
-             out, 
+             out,
              true,    // hasAlpha
-             2,       // total frames
              400,     // canvas width
              300,     // canvas height
              0,       // loop count (0 = infinite)
@@ -154,9 +155,10 @@ try (FileOutputStream out = new FileOutputStream("custom_anim.webp");
     // Frame 1: Transparent overlay with canvas background wipe
     encoder.setFrame(1, frame2, 120, 85.0f, false,
             WebPFrameFlag.NO_BLEND, WebPFrameFlag.DISPOSE_TO_BACKGROUND);
-    
-    encoder.flush();
-}
+} // close() writes the animation
+
+// Raw pixel frames may be placed at an offset; offsets must be even (the container stores x/2, y/2):
+// encoder.setFrame(2, pixels, 16, 8, 64, 64, 100, 80.0f, false);
 ```
 
 ### 3. Decoding Animated WebP into Frames
@@ -413,14 +415,66 @@ xyz.lychee.webp4j
 
 ---
 
+## 🛡️ Safety Limits for Untrusted Input
+
+A WebP header of a few dozen bytes can declare a 16383×16383 canvas, and an animation can declare thousands of such frames. WebP4j checks the *declared* size against `WebPLimits` **before** reserving any memory, and rejects with an `IOException`:
+
+```java
+import xyz.lychee.webp4j.utils.WebPLimits;
+
+WebPLimits.setMaxPixels(50_000_000L);        // one image / one animation canvas (default 100 Mpx)
+WebPLimits.setMaxTotalPixels(128_000_000L);  // all frames of an animation together (default 256 Mpx)
+WebPLimits.setMaxFrames(5_000);              // default 20 000
+WebPLimits.setMaxInputBytes(64L << 20);      // bytes read from a stream or file (default 1 GiB)
+```
+
+The container parsers are overflow-safe: a hostile chunk size can neither make a scan loop forever nor read outside the data. The native GIF decoder rejects canvases above `WEBP4J_GIF_MAX_PIXELS` (CMake option, default 100 Mpx).
+
+---
+
+## 🎚️ Encoder Options
+
+`WebPEncoderOptions` exposes libwebp's `WebPConfig` for static images:
+
+```java
+byte[] smallest = WebPEncoder.encode(image,
+        WebPEncoderOptions.lossless().setMethod(6).setQuality(100));   // lossless: quality = effort
+
+byte[] photo = WebPEncoder.encode(image,
+        WebPEncoderOptions.lossy(80f).setSharpYuv(true).setAlphaQuality(90).setMethod(5));
+```
+
+Options beyond quality/lossless need a native library built from 2.7.0 or later (older binaries throw `UnsupportedOperationException`).
+
+---
+
+## 🔧 Native Library Loading
+
+The bundled binary is extracted once into `<java.io.tmpdir>/webp4j-<sha256>/` (override the base directory with `-Dwebp4j.tmpdir=...`), verified by hash on every start and shared by all JVMs. To use your own build (musl/Alpine, other architectures) point `-Dwebp4j.native.path=/path/to/libwebp4j.so` to it; as a last resort `System.loadLibrary("webp4j")` is tried.
+
+---
+
+## 🔁 Migrating to 2.7.0
+
+| Change | What to do |
+|:---|:---|
+| `AnimatedWebPEncoder` writes the container once on `close()`; `flush()` is deprecated (it now equals `finish()` and is idempotent) | Remove explicit `flush()` calls |
+| Constructors lost the `frames` parameter (the old ones remain, deprecated) | Drop the frame count argument |
+| `setChunkAt` was removed; `getChunks()` returns the chunks that would be written | Use `setFrame(index, ANMFChunk)` / `addFrame(ANMFChunk)` |
+| ANMF frame offsets must be even and are stored as `x/2`, `y/2` as the container specification requires | Round offsets down to even values |
+| `WebPEncoder.encode(image, quality, out)` no longer switches to lossless at quality ≥ 100 | Call `encodeLossless` for lossless output |
+| Maven coordinates are `io.github.lajczik:webp4j` | Update the dependency |
+
+---
+
 ## 📊 Performance
 
 WebP4j is engineered for server-side environments where memory efficiency and throughput matter:
 
-- **Zero-Copy Raster Pipeline**: Contiguous `TYPE_INT_ARGB`, `TYPE_INT_RGB`, and `TYPE_3BYTE_BGR` raster arrays cross directly into libwebp without intermediary heap conversions.
-- **Microsecond Header Parsing**: Container dimensions, frame counts, and animation flags are resolved by reading only the first 30–64 bytes of a file.
-- **Zero-Allocation Stream Reading**: Chunk readers unpack little-endian integers using branch-free bitwise operations instead of allocating temporary byte buffers.
-- **Multi-Threaded Tile Encoding**: Enabled by default in libwebp, delivering up to **~42% faster animated WebP encoding** on modern multi-core CPUs.
+- **Low-Copy Raster Pipeline**: Contiguous `TYPE_INT_ARGB`, `TYPE_INT_RGB`, and `TYPE_3BYTE_BGR` raster arrays are handed to libwebp without intermediate conversion. With the JNI backend the arrays are pinned (no copy); the FFM backend copies the input into native memory once.
+- **Cheap Header Parsing**: Dimensions, format and animation flags are read from the first 64 bytes of a file, without allocating chunk objects; metadata (EXIF/ICC/XMP) is read by skipping over the image data.
+- **Single-pass Chunk Scanning**: `RiffScanner` walks the container with no per-chunk allocation, and all offset arithmetic is done in `long`.
+- **Multi-Threaded Encoding**: libwebp's `thread_level` is enabled by default (bit-identical output, faster on multi-core CPUs). Measure on your own data; no benchmark is bundled.
 
 ---
 
